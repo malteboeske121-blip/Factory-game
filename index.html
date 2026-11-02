@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fabrik-Simulator</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="topbar">
+  <div class="stat"><span class="label">Geld</span><span id="money">0 €</span></div>
+  <div class="stat"><span class="label">Einkommen</span><span id="income">0 €/s</span></div>
+  <div class="spacer"></div>
+  <button id="btnUpgrades">Upgrades</button>
+  <button id="btnHelp">Hilfe</button>
+  <button id="btnNew">Neues Spiel</button>
+</div>
+
+<div id="side">
+  <h3>Aufträge</h3>
+  <div id="missions"></div>
+  <h3>Info</h3>
+  <div id="info">Wähle ein Gebäude unten aus oder klicke auf ein platziertes Gebäude.</div>
+</div>
+
+<div id="hotbar"></div>
+
+<div id="upgrades" class="modal hidden">
+  <div class="modal-box">
+    <h2>Upgrades</h2>
+    <div id="upgradeList"></div>
+    <button class="close">Schließen</button>
+  </div>
+</div>
+
+<div id="help" class="modal hidden">
+  <div class="modal-box">
+    <h2>Fabrik-Simulator – Anleitung</h2>
+    <p>Baue eine automatische Fabrik: Rohstoffe abbauen, verarbeiten und verkaufen!</p>
+    <ul>
+      <li><b>Bohrer</b> nur auf Erzfeldern platzieren. Sie geben Erz in Pfeilrichtung aus.</li>
+      <li><b>Förderbänder</b> transportieren Gegenstände. Mit gedrückter Maustaste ziehen, um Bänder zu verlegen.</li>
+      <li><b>Schmelzofen</b> macht aus Erz Platten. Braucht <b>Kohle</b> als Brennstoff (1 Kohle = 4 Schmelzvorgänge).</li>
+      <li><b>Montierer</b> bauen Bauteile. Klicke einen Montierer an, um das Rezept zu wählen.</li>
+      <li><b>Verteiler</b> verteilt Gegenstände abwechselnd nach vorne, links und rechts.</li>
+      <li><b>Verkauf</b> nimmt alles an und bringt Geld.</li>
+    </ul>
+    <h3>Steuerung</h3>
+    <ul>
+      <li><b>1–7</b>: Gebäude wählen · <b>Esc</b>: Auswahl aufheben</li>
+      <li><b>R</b>: drehen · <b>Linksklick</b>: bauen / anklicken</li>
+      <li><b>Rechtsklick</b>: abreißen (75 % Rückerstattung)</li>
+      <li><b>WASD / Pfeiltasten</b> oder <b>mittlere Maustaste</b>: Kamera bewegen · <b>Mausrad</b>: Zoom</li>
+      <li><b>Leertaste</b>: Pause</li>
+    </ul>
+    <button class="close">Los geht's!</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+<div id="pause" class="hidden">PAUSE</div>
+
+<script src="game.js"></script>
+</body>
+</html>
