@@ -333,6 +333,8 @@ let toolDir = 0;
 let selected = null; // angeklicktes Gebäude
 let paused = false;
 let mode3d = false; // 3D-Modus (siehe three3d.js)
+let demolish = false; // Abriss-Werkzeug aktiv
+let touchUI = matchMedia('(pointer: coarse)').matches; // Touch-Bedienung (Handy/Tablet)
 
 function resize() {
   canvas.width = innerWidth * devicePixelRatio;
@@ -530,7 +532,11 @@ function render() {
   // Vorschau
   if (mouse.inside && inMap(mouse.tx, mouse.ty)) {
     const px = mouse.tx * TILE, py = mouse.ty * TILE;
-    if (tool) {
+    if (demolish) {
+      ctx.strokeStyle = '#e05050'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(px + 8, py + 8); ctx.lineTo(px + TILE - 8, py + TILE - 8);
+      ctx.moveTo(px + TILE - 8, py + 8); ctx.lineTo(px + 8, py + TILE - 8); ctx.stroke();
+    } else if (tool) {
       const ok = canPlace(tool, mouse.tx, mouse.ty) && state.money >= BUILDINGS[tool].cost;
       drawBuilding(ctx, { type: tool, dir: toolDir, recipe: state.recipe, anim: 0 }, px, py, true);
       ctx.strokeStyle = ok ? '#5cc85c' : '#e05050';
@@ -574,10 +580,33 @@ function buildHotbar() {
     el.onclick = () => selectTool(tool === type ? null : type);
     hb.appendChild(el);
   }
+  // Sonderfelder: Abreißen und Drehen (vor allem für Touch)
+  const special = (id, key, icon, label, onclick) => {
+    const el = document.createElement('div');
+    el.className = 'slot special'; el.dataset.special = id;
+    el.innerHTML = `<span class="key">${key}</span><span class="icon">${icon}</span><span>${label}</span>`;
+    el.onclick = onclick;
+    hb.appendChild(el);
+  };
+  special('demolish', 'X', '✖', 'Abreißen', () => setDemolish(!demolish));
+  special('rotate', 'R', '↻', 'Drehen', rotateAction);
+}
+
+function setDemolish(on) {
+  demolish = on;
+  if (on) { tool = null; selected = null; renderInfo(); }
+  updateHotbar();
+}
+
+function rotateAction() {
+  if (tool) toolDir = (toolDir + 1) % 4;
+  else if (selected) selected.dir = (selected.dir + 1) % 4;
+  else toast(touchUI ? 'Wähle zuerst ein Gebäude oder tippe eines an' : 'Wähle zuerst ein Gebäude (1–7)', true);
 }
 
 function updateHotbar() {
   for (const el of $('hotbar').children) {
+    if (el.dataset.special) { el.classList.toggle('active', el.dataset.special === 'demolish' && demolish); continue; }
     el.classList.toggle('active', el.dataset.type === tool);
     el.classList.toggle('poor', state.money < BUILDINGS[el.dataset.type].cost);
   }
@@ -585,6 +614,7 @@ function updateHotbar() {
 
 function selectTool(type) {
   tool = type;
+  demolish = false;
   if (type) { selected = null; renderInfo(); }
   updateHotbar();
   canvas.style.cursor = type ? 'crosshair' : 'default';
@@ -618,9 +648,11 @@ function renderInfo(force = true) {
   if (!selected) {
     if (tool) {
       const d = BUILDINGS[tool];
-      el.innerHTML = `<b>${d.name}</b> (${d.cost} €)<br>${d.desc}<br><small>R = drehen</small>`;
+      el.innerHTML = `<b>${d.name}</b> (${d.cost} €)<br>${d.desc}<br><small>${touchUI ? '↻ Drehen unten in der Leiste' : 'R = drehen'}</small>`;
       if (tool === 'assembler') el.innerHTML += recipeButtons(state.recipe);
-    } else el.innerHTML = 'Wähle ein Gebäude unten aus oder klicke auf ein platziertes Gebäude.';
+    } else if (demolish) el.innerHTML = '<b>Abreißen</b><br>Gebäude antippen oder darüber ziehen. Du bekommst 75 % der Kosten zurück.';
+    else el.innerHTML = touchUI ? 'Wähle unten ein Gebäude oder tippe ein platziertes Gebäude an. Zwei Finger: zoomen und verschieben.'
+      : 'Wähle ein Gebäude unten aus oder klicke auf ein platziertes Gebäude.';
     bindRecipeButtons();
     return;
   }
@@ -723,7 +755,7 @@ canvas.addEventListener('mousedown', e => {
   if (e.button === 1 || (e.button === 0 && !tool && !bAt(tx, ty) && e.shiftKey)) {
     panning = { sx: e.clientX, sy: e.clientY, cx: cam.x, cy: cam.y }; e.preventDefault(); return;
   }
-  if (e.button === 2) {
+  if (e.button === 2 || (e.button === 0 && demolish)) {
     dragging = { button: 2 };
     removeAt(tx, ty);
     return;
@@ -787,9 +819,11 @@ addEventListener('keydown', e => {
   if (idx >= 0) selectTool(tool === BUILD_ORDER[idx] ? null : BUILD_ORDER[idx]);
   else if (k === 'r') {
     if (tool) toolDir = (toolDir + (e.shiftKey ? 3 : 1)) % 4;
+    else if (selected && !mouse.inside) selected.dir = (selected.dir + 1) % 4;
     else if (mouse.inside) { const b = bAt(mouse.tx, mouse.ty); if (b) b.dir = (b.dir + (e.shiftKey ? 3 : 1)) % 4; }
-  } else if (k === 'escape') { selectTool(null); selected = null; renderInfo(); closeModals(); }
-  else if (k === ' ') { paused = !paused; $('pause').classList.toggle('hidden', !paused); e.preventDefault(); }
+  } else if (k === 'x') setDemolish(!demolish);
+  else if (k === 'escape') { selectTool(null); selected = null; renderInfo(); closeModals(); }
+  else if (k === ' ') { togglePause(); e.preventDefault(); }
   else if (k === 'q') {
     const b = mouse.inside && bAt(mouse.tx, mouse.ty);
     if (b) { selectTool(b.type); toolDir = b.dir; if (b.recipe) state.recipe = b.recipe; renderInfo(); }
@@ -797,11 +831,105 @@ addEventListener('keydown', e => {
 });
 addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
 
+// ---------- Touch-Steuerung (2D) ----------
+// 1 Finger: mit Gebäude = bauen/Bänder ziehen, Abriss = abreißen, sonst Karte verschieben / antippen.
+// 2 Finger: zoomen und verschieben.
+let touch2d = null;
+function enableTouchUI() {
+  if (touchUI && document.body.classList.contains('touch')) return;
+  touchUI = true;
+  document.body.classList.add('touch');
+  renderInfo();
+}
+const tpos = t => [t.clientX, t.clientY];
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  enableTouchUI();
+  const ts = e.touches;
+  if (ts.length >= 2) {
+    // Bau-Geste abbrechen, Zoom starten
+    dragging = null;
+    const [a, b] = [tpos(ts[0]), tpos(ts[1])];
+    touch2d = { pinch: true, dist: Math.hypot(a[0] - b[0], a[1] - b[1]), mx: (a[0] + b[0]) / 2, my: (a[1] + b[1]) / 2 };
+    mouse.inside = false;
+    return;
+  }
+  const [sx, sy] = tpos(ts[0]);
+  const [tx, ty] = screenToTile(sx, sy);
+  mouse.sx = sx; mouse.sy = sy; mouse.tx = tx; mouse.ty = ty;
+  mouse.inside = !!(tool || demolish);
+  touch2d = { pinch: false, sx, sy, cx: cam.x, cy: cam.y, tx, ty, moved: false, started: false };
+}, { passive: false });
+
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (!touch2d) return;
+  const ts = e.touches;
+  if (touch2d.pinch && ts.length >= 2) {
+    const [a, b] = [tpos(ts[0]), tpos(ts[1])];
+    const dist = Math.hypot(a[0] - b[0], a[1] - b[1]), mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+    const wx = touch2d.mx / cam.zoom + cam.x, wy = touch2d.my / cam.zoom + cam.y;
+    cam.zoom = Math.min(3, Math.max(0.4, cam.zoom * dist / touch2d.dist));
+    cam.x = wx - mx / cam.zoom; cam.y = wy - my / cam.zoom;
+    clampCam();
+    Object.assign(touch2d, { dist, mx, my });
+    return;
+  }
+  if (touch2d.pinch) return;
+  const [sx, sy] = tpos(ts[0]);
+  const [tx, ty] = screenToTile(sx, sy);
+  mouse.sx = sx; mouse.sy = sy; mouse.tx = tx; mouse.ty = ty;
+  if (Math.hypot(sx - touch2d.sx, sy - touch2d.sy) > 10) touch2d.moved = true;
+  if (tool || demolish) {
+    if (!touch2d.started && (tx !== touch2d.tx || ty !== touch2d.ty)) startTouchBuild();
+    if (touch2d.started && dragging) dragTo(tx, ty);
+  } else if (touch2d.moved) {
+    cam.x = touch2d.cx - (sx - touch2d.sx) / cam.zoom;
+    cam.y = touch2d.cy - (sy - touch2d.sy) / cam.zoom;
+    clampCam();
+  }
+}, { passive: false });
+
+function startTouchBuild() {
+  touch2d.started = true;
+  const { tx, ty } = touch2d;
+  if (demolish) { dragging = { button: 2 }; removeAt(tx, ty); return; }
+  dragging = { button: 0, lastTx: tx, lastTy: ty, lastBelt: null };
+  const b = place(tool, tx, ty, toolDir);
+  if (b && tool === 'belt') dragging.lastBelt = b;
+}
+
+canvas.addEventListener('touchend', e => {
+  e.preventDefault();
+  if (!touch2d) return;
+  if (e.touches.length > 0) { if (touch2d.pinch && e.touches.length === 1) touch2d = null; return; }
+  if (!touch2d.pinch) {
+    if (tool || demolish) { if (!touch2d.started) startTouchBuild(); }
+    else if (!touch2d.moved) {
+      selected = bAt(touch2d.tx, touch2d.ty);
+      renderInfo();
+      if (selected) $('side').classList.add('open');
+    }
+  }
+  dragging = null; touch2d = null;
+  if (!tool && !demolish) mouse.inside = false;
+}, { passive: false });
+canvas.addEventListener('touchcancel', () => { dragging = null; touch2d = null; });
+
+function togglePause() {
+  paused = !paused;
+  $('pause').classList.toggle('hidden', !paused);
+  $('btnPause').classList.toggle('on', paused);
+}
+
 function closeModals() { for (const m of document.querySelectorAll('.modal')) m.classList.add('hidden'); }
 for (const m of document.querySelectorAll('.modal')) {
   m.addEventListener('click', e => { if (e.target === m || e.target.classList.contains('close')) m.classList.add('hidden'); });
 }
 $('btn3d').onclick = () => { set3d(!mode3d); $('btn3d').blur(); };
+$('btnPause').onclick = () => { togglePause(); $('btnPause').blur(); };
+$('btnMenu').onclick = () => $('side').classList.toggle('open');
+$('btnCloseSide').onclick = () => $('side').classList.remove('open');
 $('btnHelp').onclick = () => $('help').classList.remove('hidden');
 $('btnUpgrades').onclick = () => { renderUpgrades(); $('upgrades').classList.remove('hidden'); };
 $('btnNew').onclick = () => $('newGame').classList.remove('hidden');
@@ -881,6 +1009,7 @@ function frame(now) {
 }
 
 addEventListener('load', () => {
+  if (touchUI) document.body.classList.add('touch');
   resize();
   startGame(load());
   addEventListener('beforeunload', save);

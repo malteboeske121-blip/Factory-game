@@ -15,7 +15,7 @@ const v3 = {
   ghost: null, ghostType: null, ghostDir: -1, highlight: null,
   player: { x: 0, y: 0, z: 0, vy: 0, yaw: 0, pitch: 0, onGround: true },
   locked: false, target: null, keys: {}, beltTex: null, mats: {}, geos: {}, itemMats: {}, itemGeos: {},
-  ray: null, iconCache: {},
+  ray: null, iconCache: {}, joy: { x: 0, y: 0 }, look: null,
 };
 
 const tileCenter = (x, y) => [(x + 0.5) * T3, (y + 0.5) * T3];
@@ -27,7 +27,7 @@ function init3d() {
   if (typeof THREE === 'undefined') { toast('3D-Bibliothek konnte nicht geladen werden', true); return false; }
   const cv = document.getElementById('game3d');
   const r = new THREE.WebGLRenderer({ canvas: cv, antialias: true });
-  r.setPixelRatio(Math.min(2, devicePixelRatio));
+  r.setPixelRatio(Math.min(touchUI ? 1.5 : 2, devicePixelRatio));
   r.shadowMap.enabled = true;
   r.shadowMap.type = THREE.PCFSoftShadowMap;
   v3.renderer = r;
@@ -43,7 +43,7 @@ function init3d() {
   const sun = new THREE.DirectionalLight(0xfff2d8, 0.85);
   sun.position.set(20, 40, 10);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.mapSize.set(touchUI ? 1024 : 2048, touchUI ? 1024 : 2048);
   const sc = sun.shadow.camera;
   sc.left = -35; sc.right = 35; sc.top = 35; sc.bottom = -35; sc.near = 1; sc.far = 120;
   sun.shadow.bias = -0.0008;
@@ -100,8 +100,13 @@ function init3d() {
   v3.ray.far = REACH;
 
   // Eingabe
-  cv.addEventListener('click', () => { if (!v3.locked) cv.requestPointerLock(); });
+  cv.addEventListener('click', () => {
+    if (touchUI || v3.locked) return;
+    try { const r = cv.requestPointerLock(); if (r && r.catch) r.catch(() => {}); } catch (e) { /* nicht verfügbar */ }
+  });
+  setupTouch3d(cv);
   document.addEventListener('pointerlockchange', () => {
+    if (touchUI) return;
     v3.locked = document.pointerLockElement === cv;
     document.getElementById('lockHint').classList.toggle('hidden', v3.locked || !mode3d);
     if (!v3.locked) v3.keys = {};
@@ -331,7 +336,8 @@ function updateGhost() {
   v3.highlight.position.x = cx; v3.highlight.position.z = cz;
   let ok = true;
   if (tool) ok = canPlace(tool, t.x, t.y) && state.money >= BUILDINGS[tool].cost && !(SOLID[tool] && playerInTile(t.x, t.y));
-  v3.highlight.material.color.setHex(tool ? (ok ? 0x5cc85c : 0xe05050) : 0xffffff);
+  v3.highlight.material.color.setHex(demolish ? 0xff3030 : tool ? (ok ? 0x5cc85c : 0xe05050) : 0xffffff);
+  v3.highlight.material.opacity = demolish ? 0.45 : 0.25;
   if (v3.ghost) { v3.ghost.position.set(cx, 0, cz); v3.ghost.rotation.y = -toolDir * Math.PI / 2; }
 }
 
@@ -356,7 +362,7 @@ function findTarget() {
 function on3dClick(button) {
   const t = v3.target;
   if (!t) return;
-  if (button === 2) { removeAt(t.x, t.y); return; }
+  if (button === 2 || (button === 0 && demolish)) { removeAt(t.x, t.y); return; }
   if (button !== 0) return;
   if (tool) {
     if (SOLID[tool] && playerInTile(t.x, t.y)) { toast('Hier stehst du gerade!', true); return; }
@@ -413,7 +419,12 @@ function movePlayer(dt) {
   if (K.KeyS || K.ArrowDown) f -= 1;
   if (K.KeyD || K.ArrowRight) s += 1;
   if (K.KeyA || K.ArrowLeft) s -= 1;
-  const speed = (K.ShiftLeft || K.ShiftRight) ? 9 : 5;
+  let speed = (K.ShiftLeft || K.ShiftRight) ? 9 : 5;
+  if (v3.joy.x || v3.joy.y) {
+    f = -v3.joy.y; s = v3.joy.x;
+    const m = Math.min(1, Math.hypot(f, s));
+    speed = m > 0.9 ? 8 : 5 * m / 0.9 + 0.01;
+  }
   const len = Math.hypot(f, s) || 1;
   const sin = Math.sin(p.yaw), cos = Math.cos(p.yaw);
   let vx = (-sin * f + cos * s) / len * speed;
@@ -442,8 +453,10 @@ function set3d(on) {
   document.getElementById('game').classList.toggle('hidden', on);
   document.getElementById('game3d').classList.toggle('hidden', !on);
   document.getElementById('crosshair').classList.toggle('hidden', !on);
+  if (touchUI) v3.locked = on;
+  document.getElementById('touch3d').classList.toggle('hidden', !on || !touchUI);
   document.getElementById('lockHint').classList.toggle('hidden', !on || v3.locked);
-  document.getElementById('btn3d').textContent = on ? '2D-Ansicht' : '3D-Ansicht';
+  document.getElementById('btn3d').textContent = on ? '2D' : '3D';
   if (on) {
     if (v3.groundTiles !== tiles) buildGround();
     // Spieler in die Bildmitte der 2D-Ansicht setzen
@@ -486,4 +499,80 @@ function render3d(dt) {
   v3.target = v3.locked ? findTarget() : null;
   updateGhost();
   v3.renderer.render(v3.scene, cam3);
+}
+
+// ---------- Touch-Steuerung (3D) ----------
+// Linker Joystick = laufen, auf dem Bild wischen = umsehen, kurz tippen = bauen/auswählen am Fadenkreuz.
+function setupTouch3d(cv) {
+  cv.addEventListener('touchstart', e => {
+    e.preventDefault();
+    enableTouchUI();
+    if (mode3d && !v3.locked) { v3.locked = true; document.getElementById('lockHint').classList.add('hidden'); document.getElementById('touch3d').classList.remove('hidden'); }
+    if (v3.look) return;
+    const t = e.changedTouches[0];
+    v3.look = { id: t.identifier, x: t.clientX, y: t.clientY, sx: t.clientX, sy: t.clientY, time: performance.now(), moved: false };
+  }, { passive: false });
+  cv.addEventListener('touchmove', e => {
+    e.preventDefault();
+    const L = v3.look;
+    if (!L) return;
+    for (const t of e.changedTouches) {
+      if (t.identifier !== L.id) continue;
+      const p = v3.player;
+      p.yaw -= (t.clientX - L.x) * 0.006;
+      p.pitch = Math.max(-1.5, Math.min(1.5, p.pitch - (t.clientY - L.y) * 0.006));
+      L.x = t.clientX; L.y = t.clientY;
+      if (Math.hypot(t.clientX - L.sx, t.clientY - L.sy) > 12) L.moved = true;
+    }
+  }, { passive: false });
+  const end = e => {
+    e.preventDefault();
+    const L = v3.look;
+    if (!L) return;
+    for (const t of e.changedTouches) {
+      if (t.identifier !== L.id) continue;
+      if (e.type === 'touchend' && !L.moved && performance.now() - L.time < 350) {
+        v3.target = findTarget();
+        on3dClick(0);
+        if (!tool && !demolish && selected) document.getElementById('side').classList.add('open');
+      }
+      v3.look = null;
+    }
+  };
+  cv.addEventListener('touchend', end, { passive: false });
+  cv.addEventListener('touchcancel', end, { passive: false });
+
+  // Joystick
+  const joy = document.getElementById('joy'), knob = document.getElementById('joyKnob');
+  let jid = null;
+  const setJoy = t => {
+    const r = joy.getBoundingClientRect();
+    const R = r.width / 2;
+    let dx = t.clientX - (r.left + R), dy = t.clientY - (r.top + R);
+    const d = Math.hypot(dx, dy);
+    if (d > R) { dx *= R / d; dy *= R / d; }
+    v3.joy.x = dx / R; v3.joy.y = dy / R;
+    knob.style.transform = `translate(${dx}px, ${dy}px)`;
+  };
+  joy.addEventListener('touchstart', e => {
+    e.preventDefault();
+    const t = e.changedTouches[0]; jid = t.identifier; setJoy(t);
+  }, { passive: false });
+  joy.addEventListener('touchmove', e => {
+    e.preventDefault();
+    for (const t of e.changedTouches) if (t.identifier === jid) setJoy(t);
+  }, { passive: false });
+  const jend = e => {
+    e.preventDefault();
+    for (const t of e.changedTouches) if (t.identifier === jid) {
+      jid = null; v3.joy.x = v3.joy.y = 0; knob.style.transform = '';
+    }
+  };
+  joy.addEventListener('touchend', jend, { passive: false });
+  joy.addEventListener('touchcancel', jend, { passive: false });
+
+  const jump = document.getElementById('btnJump');
+  const doJump = e => { e.preventDefault(); const p = v3.player; if (p.onGround) { p.vy = 6; p.onGround = false; } };
+  jump.addEventListener('touchstart', doJump, { passive: false });
+  jump.addEventListener('click', doJump);
 }

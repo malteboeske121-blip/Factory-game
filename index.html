@@ -2,7 +2,10 @@
 <html lang="de">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#14181e">
 <title>Fabrik-Simulator</title>
 <link rel="stylesheet" href="style.css">
 </head>
@@ -16,13 +19,16 @@
   <div class="stat"><span class="label">Geld</span><span id="money">0 €</span></div>
   <div class="stat"><span class="label">Einkommen</span><span id="income">0 €/s</span></div>
   <div class="spacer"></div>
-  <button id="btn3d">3D-Ansicht</button>
-  <button id="btnUpgrades">Upgrades</button>
-  <button id="btnHelp">Hilfe</button>
-  <button id="btnNew">Neues Spiel</button>
+  <button id="btnMenu" class="mobile-only" title="Aufträge & Info">☰</button>
+  <button id="btnPause" title="Pause">⏸</button>
+  <button id="btn3d" title="Zwischen 2D- und 3D-Ansicht wechseln (V)">3D</button>
+  <button id="btnUpgrades"><span class="long">Upgrades</span><span class="short">⬆</span></button>
+  <button id="btnHelp"><span class="long">Hilfe</span><span class="short">?</span></button>
+  <button id="btnNew"><span class="long">Neues Spiel</span><span class="short">↺</span></button>
 </div>
 
 <div id="side">
+  <button id="btnCloseSide" class="mobile-only" title="Schließen">✕</button>
   <h3>Aufträge</h3>
   <div id="missions"></div>
   <h3>Info</h3>
@@ -30,6 +36,11 @@
 </div>
 
 <div id="hotbar"></div>
+
+<div id="touch3d" class="hidden">
+  <div id="joy"><div id="joyKnob"></div></div>
+  <button id="btnJump">Springen</button>
+</div>
 
 <div id="upgrades" class="modal hidden">
   <div class="modal-box">
@@ -51,15 +62,27 @@
       <li><b>Verteiler</b> verteilt Gegenstände abwechselnd nach vorne, links und rechts.</li>
       <li><b>Verkauf</b> nimmt alles an und bringt Geld.</li>
     </ul>
+    <div class="touch-only">
+    <h3>Am Handy / Tablet</h3>
+    <ul>
+      <li>Gebäude unten wählen und aufs Feld <b>tippen</b>. Förderbänder mit dem Finger <b>ziehen</b>.</li>
+      <li><b>↻ Drehen</b> und <b>✖ Abreißen</b> findest du ganz rechts in der Leiste (wischen).</li>
+      <li>Ohne gewähltes Gebäude: <b>ein Finger</b> verschiebt die Karte, <b>Antippen</b> zeigt Infos, <b>zwei Finger</b> zoomen.</li>
+      <li><b>☰</b> öffnet Aufträge und Info, <b>3D</b> lässt dich durch die Fabrik laufen: Joystick links, Bild wischen zum Umsehen, kurz tippen zum Bauen.</li>
+    </ul>
+    </div>
+    <div class="desk-only">
     <h3>Steuerung</h3>
     <ul>
       <li><b>1–7</b>: Gebäude wählen · <b>Esc</b>: Auswahl aufheben</li>
       <li><b>R</b>: drehen · <b>Linksklick</b>: bauen / anklicken</li>
       <li><b>Rechtsklick</b>: abreißen (75 % Rückerstattung)</li>
       <li><b>WASD / Pfeiltasten</b> oder <b>mittlere Maustaste</b>: Kamera bewegen · <b>Mausrad</b>: Zoom</li>
+      <li><b>X</b>: Abriss-Werkzeug</li>
       <li><b>Leertaste</b>: Pause (im 3D-Modus: springen, Pause mit <b>P</b>)</li>
-      <li><b>V</b> oder Knopf <b>3D-Ansicht</b>: durch die Fabrik laufen (WASD + Maus)</li>
+      <li><b>V</b> oder Knopf <b>3D</b>: durch die Fabrik laufen (WASD + Maus)</li>
     </ul>
+    </div>
     <button class="close">Los geht's!</button>
   </div>
 </div>
