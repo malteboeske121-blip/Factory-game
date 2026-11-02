@@ -103,3 +103,6 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .touch-only { display: none; }
 body.touch .touch-only { display: block; }
 body.touch .desk-only { display: none; }
+.level { margin-top: 8px; padding: 8px; border-radius: 6px; background: #262c34; display: flex; flex-direction: column; gap: 6px; }
+.level button { text-align: left; background: #2f5a7a; border-color: #4a8ab8; }
+.level button:hover:not(:disabled) { background: #3a6e94; }

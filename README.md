@@ -10,6 +10,19 @@ Mit dem Geld baust du deine Fabrik aus, kaufst Upgrades und erfüllst Aufträge.
 
 Produktionskette: Erz → Platten → Zahnräder / Kupferkabel → Schaltkreise → Motoren → Roboter
 
+## Gebäude aufrüsten
+Bohrer, Schmelzöfen, Montierer und Verkaufsstellen haben **4 Stufen**. Gebäude anklicken bzw. antippen und
+**Aufrüsten** wählen (Taste **U**):
+
+| Stufe | Aussehen | Wirkung |
+|---|---|---|
+| 1 Alt | rostig, verwittertes Holz, rußige Ziegel | Grundtempo |
+| 2 Repariert | geflickte Bleche, Metallbänder | Tempo ×1,4 / Preise ×1,1 |
+| 3 Modern | Industrie-Lack mit Warnstreifen, Roboterarm, Betonlager | Tempo ×1,9 / Preise ×1,25 |
+| 4 Hightech | Leuchtlinien, Induktionsofen, Glasladen mit Neonschild | Tempo ×2,6 / Preise ×1,45 |
+
+Alle 3D-Texturen werden prozedural im Browser erzeugt (`textures3d.js`).
+
 ## 3D-Modus
 Mit **V** oder dem Knopf **3D-Ansicht** läufst du in der Ego-Perspektive durch deine Fabrik.
 Ins Bild klicken, um die Maus zu fangen; **Esc** gibt sie wieder frei.

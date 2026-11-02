@@ -76,6 +76,9 @@ function init3d() {
     cyl: new THREE.CylinderGeometry(0.5, 0.5, 1, 20),
     cone: new THREE.ConeGeometry(0.5, 1, 16),
     gear: new THREE.CylinderGeometry(0.5, 0.5, 1, 10),
+    plane: new THREE.PlaneGeometry(1, 1),
+    torus: new THREE.TorusGeometry(1, 0.06, 8, 32),
+    sphere: new THREE.SphereGeometry(0.5, 10, 8),
   };
 
   // Gegenstands-Formen
@@ -195,64 +198,228 @@ function itemIcon(item) {
   return (v3.iconCache[item] = new THREE.MeshBasicMaterial({ map: t }));
 }
 
+// ---------- Gebäudemodelle (zeigen nach +x), Aussehen abhängig von der Stufe ----------
+const woodMat = L => texMat('wood' + L, woodPlanks('wood' + L, WEAR[L] > 0.5 ? 1 : 0.2, 3), { roughness: 0.95, metalness: 0 });
+const brickMat = L => texMat('brick' + L, bricks('brick' + L, WEAR[L]), { roughness: 0.95, metalness: 0 });
+const concreteMat = L => texMat('conc' + L, concrete('conc' + L, L === 3 ? 0.25 : WEAR[L]), { roughness: 0.95, metalness: 0 });
+const corrMat = L => texMat('corr' + L, corrugated('corr' + L, WEAR[L]), { roughness: 0.7, metalness: 0.4 });
+const shutterMat = L => texMat('shut' + L, shutter('shut' + L, WEAR[L]), { roughness: 0.6, metalness: 0.5 });
+function plane(mat, w, h, x, y, z, ry = Math.PI / 2) {
+  const m = new THREE.Mesh(v3.geos.plane, mat);
+  m.scale.set(w, h, 1); m.position.set(x, y, z); m.rotation.y = ry;
+  return m;
+}
+function glowMat(color) {
+  const k = 'glow' + color;
+  return v3.mats[k] || (v3.mats[k] = new THREE.MeshBasicMaterial({ color }));
+}
+
+function buildMiner(grp, P, L) {
+  const s = T3;
+  const base = L === 1 ? woodMat(1) : metalMat('miner', L === 2 ? '#6b7a3a' : '#d8a21c', L);
+  const frame = L === 1 ? woodMat(1) : metalMat('steel', '#767d86', L, { stripes: false, panels: 4 });
+  const drillM = metalMat('drill', '#9aa0a8', L, { stripes: false, panels: 1 });
+  grp.add(part('box', base, s * 0.9, 0.7, s * 0.9, 0, 0.35, 0));
+  // Turm
+  const H = L >= 3 ? 2.6 : 2.3;
+  if (L < 4) {
+    for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      const post = part('box', frame, 0.14, H, 0.14, dx * 0.55, 0.7 + H / 2, dz * 0.55);
+      if (L === 1) post.rotation.set(dz * 0.06, 0, -dx * 0.06); // schiefer Holzturm
+      grp.add(post);
+    }
+    // Querstreben
+    for (const y of L >= 3 ? [1.3, 2.0, 2.7] : [1.4, 2.4]) for (const r of [0, Math.PI / 2]) for (const sgn of [1, -1]) {
+      const br = part('box', frame, 1.2, 0.09, 0.09, 0, y, sgn * 0.55);
+      br.rotation.y = r; if (r) { br.position.set(sgn * 0.55, y, 0); }
+      grp.add(br);
+    }
+    if (L >= 3) for (const sgn of [1, -1]) { // Diagonalen
+      const d = part('box', frame, 0.07, 1.5, 0.07, 0, 1.75, sgn * 0.56); d.rotation.z = 0.75; grp.add(d);
+    }
+    grp.add(part('box', L === 1 ? woodMat(1) : frame, 1.35, 0.14, 1.35, 0, 0.7 + H, 0));
+  } else {
+    grp.add(part('cyl', frame, 0.9, H, 0.9, 0, 0.7 + H / 2, 0));
+    const ring = new THREE.Mesh(v3.geos.torus, glowMat(0x5ee0ff));
+    ring.rotation.x = Math.PI / 2; ring.position.y = 1.6; ring.scale.set(0.62, 0.62, 0.62);
+    grp.add(ring); P.ring = ring;
+  }
+  // Antrieb oben
+  grp.add(part('box', L === 1 ? metalMat('drill', '#9aa0a8', 1, { stripes: false, panels: 1 }) : base, 0.6, 0.45, 0.5, 0, 1.0 + H, 0));
+  if (L === 3) grp.add(part('box', glowMat(0xffa030), 0.16, 0.12, 0.16, 0.25, 1.3 + H, 0.18));
+  // Bohrkopf (dreht sich)
+  const drill = new THREE.Group();
+  drill.position.y = 1.15;
+  drill.add(part('cyl', drillM, 0.16, H, 0.16, 0, H / 2 - 0.2, 0));
+  for (let i = 0; i < 3; i++) {
+    const bl = part('box', drillM, 0.85, 0.06, 0.14, 0, 0, 0); bl.rotation.y = i * Math.PI / 3; bl.rotation.x = 0.25; drill.add(bl);
+  }
+  if (L === 4) { const c = part('cone', glowMat(0x5ee0ff), 0.18, 0.3, 0.18, 0, -0.2, 0); c.rotation.x = Math.PI; drill.add(c); }
+  grp.add(drill); P.drill = drill;
+  // Auswurf-Rutsche
+  const chute = part('box', drillM, 0.5, 0.12, 0.45, s * 0.42, 0.55, 0); chute.rotation.z = -0.35; grp.add(chute);
+  grp.add(arrowPart(s * 0.5, 0.9));
+  // alte Fässer / neue Elektrokästen
+  if (L === 1) { const f = part('cyl', metalMat('barrel', '#7a5030', 1, { stripes: false, panels: 1 }), 0.32, 0.5, 0.32, -0.7, 0.95, 0.68); f.rotation.z = 0.1; grp.add(f); }
+  if (L >= 3) grp.add(part('box', metalMat('cab', '#8a9096', L, { stripes: false }), 0.35, 0.55, 0.22, -0.68, 0.98, -0.72));
+}
+
+function buildFurnace(grp, P, L) {
+  const s = T3;
+  let body, chim;
+  if (L <= 2) { body = brickMat(L); chim = brickMat(L); }
+  else { body = metalMat('furnace', '#7a2e22', L, { hiColor: '#e4e8ec' }); chim = metalMat('pipe', '#8a9096', L, { stripes: false, panels: 1 }); }
+  grp.add(part('box', body, s * 0.9, 1.5, s * 0.9, 0, 0.75, 0));
+  // Ofenkappe
+  grp.add(part('box', L <= 2 ? metalMat('cap', '#5a5e64', L, { stripes: false }) : body, s * 0.95, 0.14, s * 0.95, 0, 1.55, 0));
+  // Schornstein
+  if (L <= 2) grp.add(part('box', chim, 0.5, 1.5, 0.5, -0.4, 2.3, 0.4));
+  else grp.add(part('cyl', chim, 0.38, 1.7, 0.38, -0.45, 2.45, 0.45));
+  if (L === 2) for (const y of [0.35, 1.2]) grp.add(part('box', metalMat('band', '#4a4e54', 2, { stripes: false, panels: 1 }), s * 0.92, 0.08, s * 0.92, 0, y, 0));
+  if (L === 3) { // Rohrleitungen
+    const pipe = metalMat('pipe', '#8a9096', 3, { stripes: false, panels: 1 });
+    grp.add(part('cyl', pipe, 0.14, 1.2, 0.14, -0.5, 0.9, -0.95));
+    const p2 = part('cyl', pipe, 0.14, 1.0, 0.14, 0, 1.45, -0.95); p2.rotation.z = Math.PI / 2; grp.add(p2);
+  }
+  if (L === 4) { // Induktionsspulen
+    for (const y of [0.45, 0.8, 1.15]) {
+      const r = new THREE.Mesh(v3.geos.torus, glowMat(0x5ee0ff)); r.rotation.x = Math.PI / 2; r.position.set(-0.3, y, 0.3); r.scale.set(0.55, 0.55, 0.55);
+      grp.add(r);
+    }
+  }
+  // Ofentür mit Feuerfenster
+  grp.add(part('box', metalMat('door', '#3a3c40', L, { stripes: false, panels: 1 }), 0.08, 0.8, 1.0, s * 0.45, 0.6, 0));
+  const fire = part('box', new THREE.MeshBasicMaterial({ color: 0x1a1a1a }), 0.05, 0.42, 0.7, s * 0.46 + 0.03, 0.6, 0);
+  fire.castShadow = false;
+  grp.add(fire); P.fire = fire;
+  grp.add(arrowPart(s * 0.5, 1.2));
+  // Rauch (nur bei Kohle-Öfen)
+  if (L <= 3) {
+    const smoke = new THREE.Group();
+    const top = L <= 2 ? [-0.4, 3.1, 0.4] : [-0.45, 3.35, 0.45];
+    for (let i = 0; i < 4; i++) {
+      const m = new THREE.Mesh(v3.geos.sphere, new THREE.MeshStandardMaterial({ color: L === 1 ? 0x2a2a2a : 0x8a8a8a, transparent: true, opacity: 0, depthWrite: false }));
+      m.position.set(...top); m.userData.phase = i / 4; smoke.add(m);
+    }
+    smoke.userData.top = top;
+    grp.add(smoke); P.smoke = smoke;
+  }
+}
+
+function buildAssembler(grp, P, L, b) {
+  const s = T3;
+  const col = ['', '#5d6b5a', '#4f6a72', '#2f6aa8', '#2f6aa8'][L];
+  const body = metalMat('asm', col, L, { hiColor: '#e9edf0' });
+  grp.add(part('box', body, s * 0.94, 1.5, s * 0.94, 0, 0.75, 0));
+  grp.add(part('box', metalMat('asmtop', '#3a3e44', L, { stripes: false }), s * 0.75, 0.16, s * 0.75, 0, 1.58, 0));
+  const icon = new THREE.Mesh(new THREE.PlaneGeometry(s * 0.5, s * 0.5), itemIcon(RECIPES[b.recipe]?.out || 'gear'));
+  icon.rotation.x = -Math.PI / 2; icon.position.y = 1.67; grp.add(icon); P.icon = icon; P.recipe = b.recipe;
+  // Zahnrad an der Seite
+  const gear = part('gear', metalMat('drill', '#9aa0a8', L, { stripes: false, panels: 1 }), 0.8, 0.12, 0.8, s * 0.48, 1.0, 0);
+  gear.rotation.z = Math.PI / 2; grp.add(gear); P.gear = gear;
+  // Bedienpult mit Bildschirm
+  grp.add(part('box', metalMat('panel', '#3a3e44', L, { stripes: false, panels: 1 }), 0.5, 0.5, 0.12, 0.3, 0.9, s * 0.48));
+  const scr = part('box', L === 1 ? new THREE.MeshStandardMaterial({ color: 0x1a2a1a, roughness: 0.3 }) : glowMat([0, 0, 0x2a8a3a, 0x40ff80, 0x5ee0ff][L]),
+    0.36, 0.26, 0.02, 0.3, 0.95, s * 0.48 + 0.07);
+  scr.castShadow = false; grp.add(scr); P.screen = scr;
+  // Roboterarm (ab Stufe 3)
+  if (L >= 3) {
+    const arm = new THREE.Group(); arm.position.set(-0.45, 1.66, -0.45);
+    const am = metalMat('arm', L === 4 ? '#e9edf0' : '#f2b01e', 3, { stripes: false, panels: 1 });
+    arm.add(part('cyl', am, 0.22, 0.2, 0.22, 0, 0.1, 0));
+    const a1 = part('box', am, 0.12, 0.7, 0.12, 0, 0.5, 0); a1.rotation.z = 0.4; arm.add(a1);
+    const a2 = part('box', am, 0.6, 0.1, 0.1, 0.3, 0.8, 0); arm.add(a2);
+    grp.add(arm); P.arm = arm;
+  }
+  if (L === 1) { // altes Rohr mit Rost
+    const pipe = part('cyl', metalMat('pipe', '#8a9096', 1, { stripes: false, panels: 1 }), 0.12, 1.4, 0.12, -0.7, 0.9, -s * 0.47);
+    grp.add(pipe);
+  }
+  grp.add(arrowPart(s * 0.5, 0.35));
+}
+
+function buildSeller(grp, P, L) {
+  const s = T3, F = s * 0.46; // Vorderseite bei +x
+  if (L <= 2) {
+    // Holzschuppen mit Wellblechdach
+    const wood = woodMat(L);
+    grp.add(part('box', wood, s * 0.8, 1.5, s * 0.86, -0.1, 0.75, 0));
+    const roof = part('box', corrMat(L), s * 0.98, 0.06, s * 0.98, 0, 1.68, 0); roof.rotation.z = -0.2; grp.add(roof);
+    // Verkaufstheke vorne
+    grp.add(part('box', wood, 0.35, 0.85, s * 0.86, F - 0.2, 0.43, 0));
+    grp.add(part('box', woodMat(2), 0.45, 0.06, s * 0.9, F - 0.18, 0.88, 0));
+    // dunkle Öffnung bzw. Rolltor
+    if (L === 1) grp.add(plane(new THREE.MeshStandardMaterial({ color: 0x1a140e }), 1.3, 0.55, F - 0.39, 1.2, 0));
+    else grp.add(plane(shutterMat(2), 1.4, 0.6, F - 0.39, 1.22, 0));
+    // Stützpfosten
+    for (const z of [-0.8, 0.8]) grp.add(part('box', wood, 0.1, 1.6, 0.1, F, 0.8, z));
+    // Schild
+    const sign = plane(new THREE.MeshStandardMaterial({ map: signTex(L).map, roughness: 0.9 }), 1.6, 0.4, F + 0.02, 1.62, 0);
+    sign.rotation.z = 0; grp.add(sign); P.sign = sign;
+    // Kisten und Fass
+    const crate = woodMat(1);
+    grp.add(part('box', crate, 0.42, 0.42, 0.42, -0.62, 0.21, -0.98 + 0.21));
+    grp.add(part('box', crate, 0.34, 0.34, 0.34, -0.6, 0.59, -0.98 + 0.2));
+    if (L === 1) grp.add(part('cyl', metalMat('barrel', '#7a5030', 1, { stripes: false, panels: 1 }), 0.34, 0.55, 0.34, 0.15, 0.28, 0.98 - 0.2));
+  } else {
+    const walls = L === 3 ? concreteMat(3) : metalMat('shop', '#30363e', 4, { stripes: false, hiColor: '#30363e', panels: 3 });
+    grp.add(part('box', walls, s * 0.88, 1.7, s * 0.9, -0.04, 0.85, 0));
+    // Dach mit Kante
+    grp.add(part('box', metalMat('roof', '#5a5e64', L, { stripes: false }), s * 0.94, 0.12, s * 0.96, -0.02, 1.76, 0));
+    if (L === 3) {
+      // Rolltor + Laderampe + Lampe
+      grp.add(plane(shutterMat(3), 1.1, 1.1, F - 0.01, 0.75, 0.15));
+      grp.add(part('box', concreteMat(3), 0.3, 0.2, 1.3, F + 0.05, 0.1, 0.15));
+      grp.add(part('box', glowMat(0xfff0b0), 0.12, 0.06, 0.3, F + 0.06, 1.42, 0.15));
+      // Palette mit Kartons
+      grp.add(part('box', woodMat(2), 0.55, 0.1, 0.55, F - 0.05, 0.05, -0.68));
+      const cardboard = v3.mats.cardboard || (v3.mats.cardboard = new THREE.MeshStandardMaterial({ color: 0xb08850, roughness: 0.95 }));
+      grp.add(part('box', cardboard, 0.24, 0.24, 0.24, F - 0.15, 0.22, -0.78), part('box', cardboard, 0.24, 0.24, 0.24, F + 0.1, 0.22, -0.6),
+        part('box', cardboard, 0.24, 0.22, 0.24, F - 0.05, 0.45, -0.68));
+    } else {
+      // Glasfront mit beleuchtetem Laden + Leuchtstreifen
+      const win = texMat('shopwin', shopWindow('shopwin'), { roughness: 0.15, metalness: 0.3, emissiveIntensity: 0.9 });
+      grp.add(plane(win, 1.6, 1.2, F - 0.01, 0.75, 0));
+      grp.add(part('box', glowMat(0x5ee0ff), 0.04, 0.05, s * 0.92, F + 0.02, 1.62, 0));
+      grp.add(part('box', glowMat(0x5ee0ff), 0.04, 0.04, s * 0.92, F + 0.02, 0.06, 0));
+    }
+    // Leuchtschild auf dem Dach
+    const st = signTex(L);
+    const signMat = new THREE.MeshStandardMaterial({ map: st.map, emissiveMap: st.emissive, emissive: new THREE.Color(0xffffff), emissiveIntensity: 0.8, roughness: 0.5 });
+    grp.add(part('box', metalMat('roof', '#5a5e64', L, { stripes: false }), 0.12, 0.6, 1.7, F - 0.25, 2.12, 0));
+    const sign = plane(signMat, 1.65, 0.45, F - 0.18, 2.12, 0); grp.add(sign); P.sign = sign; P.signMat = signMat;
+  }
+  // Münze, die beim Verkauf hochsteigt
+  const coin = part('cyl', 'gold', 0.4, 0.06, 0.4, 0, 2.3, 0);
+  coin.rotation.x = Math.PI / 2; coin.visible = false; grp.add(coin); P.coin = coin;
+}
+
 function makeModel(b) {
   const grp = new THREE.Group();
-  const s = T3;
-  grp.userData = { b, parts: {} };
+  const s = T3, L = b.level || 1;
+  grp.userData = { b, parts: {}, level: L };
   const P = grp.userData.parts;
   switch (b.type) {
     case 'belt': {
       const top = new THREE.Mesh(v3.geos.box, [v3.mats.beltSide, v3.mats.beltSide, v3.mats.belt, v3.mats.beltSide, v3.mats.beltSide, v3.mats.beltSide]);
       top.scale.set(s, 0.22, s * 0.86); top.position.y = 0.11; top.receiveShadow = true;
       grp.add(top);
-      grp.add(part('box', 'dark', s, 0.3, 0.08, 0, 0.15, s * 0.45), part('box', 'dark', s, 0.3, 0.08, 0, 0.15, -s * 0.45));
+      const rail = metalMat('rail', '#6a7078', 2, { stripes: false, panels: 1 });
+      grp.add(part('box', rail, s, 0.3, 0.08, 0, 0.15, s * 0.45), part('box', rail, s, 0.3, 0.08, 0, 0.15, -s * 0.45));
       break;
     }
-    case 'miner': {
-      grp.add(part('box', 'minerBase', s * 0.9, 0.9, s * 0.9, 0, 0.45, 0));
-      grp.add(part('box', 'dark', s * 0.5, 1.2, s * 0.5, 0, 1.4, 0));
-      for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]])
-        grp.add(part('box', 'metal', 0.1, 1.6, 0.1, dx * 0.55, 1.3, dz * 0.55));
-      const drill = new THREE.Group();
-      drill.position.y = 2.2;
-      for (let i = 0; i < 3; i++) { const bl = part('box', 'metal', 0.9, 0.08, 0.16, 0, 0, 0); bl.rotation.y = i * Math.PI / 3; drill.add(bl); }
-      grp.add(drill); P.drill = drill;
-      grp.add(arrowPart(s * 0.5, 0.5));
-      break;
-    }
-    case 'furnace': {
-      grp.add(part('box', 'brick', s * 0.9, 1.5, s * 0.9, 0, 0.75, 0));
-      grp.add(part('cyl', 'brick', 0.45, 1.3, 0.45, -0.35, 2.1, 0.35));
-      const fire = part('box', new THREE.MeshBasicMaterial({ color: 0x222222 }), 0.05, 0.5, 0.8, s * 0.451, 0.55, 0);
-      grp.add(fire); P.fire = fire;
-      grp.add(arrowPart(s * 0.5, 1.2));
-      break;
-    }
-    case 'assembler': {
-      grp.add(part('box', 'asm', s * 0.94, 1.6, s * 0.94, 0, 0.8, 0));
-      grp.add(part('box', 'asmTop', s * 0.7, 0.2, s * 0.7, 0, 1.7, 0));
-      const icon = new THREE.Mesh(new THREE.PlaneGeometry(s * 0.55, s * 0.55), itemIcon(RECIPES[b.recipe]?.out || 'gear'));
-      icon.rotation.x = -Math.PI / 2; icon.position.y = 1.81; grp.add(icon); P.icon = icon; P.recipe = b.recipe;
-      const gear = part('gear', 'metal', 0.8, 0.12, 0.8, 0, 1.0, 0);
-      gear.rotation.z = Math.PI / 2; gear.position.x = s * 0.48; grp.add(gear); P.gear = gear;
-      grp.add(arrowPart(s * 0.5, 0.4));
-      break;
-    }
+    case 'miner': buildMiner(grp, P, L); break;
+    case 'furnace': buildFurnace(grp, P, L); break;
+    case 'assembler': buildAssembler(grp, P, L, b); break;
+    case 'seller': buildSeller(grp, P, L); break;
     case 'splitter': {
-      grp.add(part('box', 'splitter', s * 0.9, 0.5, s * 0.9, 0, 0.25, 0));
+      grp.add(part('box', metalMat('split', '#4a4f58', 2, { stripes: false }), s * 0.9, 0.5, s * 0.9, 0, 0.25, 0));
       grp.add(arrowPart(s * 0.42, 0.6));
       for (const d of [1, -1]) { const a = part('cone', 'arrow', 0.25, 0.35, 0.25, 0, 0.6, d * s * 0.38); a.rotation.x = d * Math.PI / 2; grp.add(a); }
       break;
     }
-    case 'seller': {
-      grp.add(part('box', 'seller', s * 0.92, 1.2, s * 0.92, 0, 0.6, 0));
-      grp.add(part('box', 'gold', s * 0.96, 0.12, s * 0.96, 0, 1.25, 0));
-      const coin = part('cyl', 'gold', 0.9, 0.12, 0.9, 0, 2.0, 0);
-      coin.rotation.x = Math.PI / 2; grp.add(coin); P.coin = coin;
-      break;
-    }
     case 'bin': {
-      grp.add(part('cyl', 'bin', s * 0.6, 1.1, s * 0.6, 0, 0.55, 0));
+      grp.add(part('cyl', metalMat('bin', '#60656c', 2, { stripes: false, panels: 1 }), s * 0.6, 1.1, s * 0.6, 0, 0.55, 0));
       grp.add(part('cyl', 'dark', s * 0.66, 0.1, s * 0.66, 0, 1.12, 0));
       break;
     }
@@ -268,24 +435,44 @@ function syncBuildings(dt) {
   for (const b of buildings) {
     seen.add(b);
     let o = v3.objs.get(b);
+    if (o && o.userData.level !== (b.level || 1)) { // aufgerüstet → neues Modell
+      v3.scene.remove(o); o = null;
+      const n = makeModel(b); n.userData.pop = 1; v3.objs.set(b, n); v3.scene.add(n); o = n;
+    }
     if (!o) { o = makeModel(b); v3.objs.set(b, o); v3.scene.add(o); }
     o.rotation.y = -b.dir * Math.PI / 2;
+    if (o.userData.pop > 0) {
+      o.userData.pop = Math.max(0, o.userData.pop - dt * 1.5);
+      const k = 1 + Math.sin(o.userData.pop * Math.PI) * 0.18;
+      o.scale.set(k, k, k);
+    }
     const P = o.userData.parts;
     switch (b.type) {
-      case 'miner': if (b.out.length < 2) P.drill.rotation.y += dt * 8; break;
+      case 'miner':
+        if (b.out.length < 2) P.drill.rotation.y += dt * 4 * lvSpeed(b);
+        if (P.ring) P.ring.position.y = 1.6 + Math.sin(simTime * 3) * 0.6;
+        break;
       case 'furnace': {
         const on = !!b.job;
         if (on) P.fire.material.color.setRGB(1, 0.45 + Math.sin(simTime * 25 + b.x) * 0.1, 0.1);
-        else P.fire.material.color.setHex(0x222222);
+        else P.fire.material.color.setHex(0x1a1a1a);
+        if (P.smoke) for (const m of P.smoke.children) {
+          m.userData.phase = (m.userData.phase + dt * 0.5) % 1;
+          const ph = m.userData.phase, top = P.smoke.userData.top;
+          m.position.set(top[0] + ph * 0.4, top[1] + ph * 1.8, top[2]);
+          const sc = 0.25 + ph * 0.6; m.scale.set(sc, sc, sc);
+          m.material.opacity = on ? (1 - ph) * 0.45 : Math.max(0, m.material.opacity - dt);
+        }
         break;
       }
       case 'assembler':
-        if (b.job) P.gear.rotation.x += dt * 5;
+        if (b.job) { P.gear.rotation.x += dt * 5; if (P.arm) P.arm.rotation.y = Math.sin(simTime * 3) * 1.2; }
         if (P.recipe !== b.recipe) { P.recipe = b.recipe; P.icon.material = itemIcon(RECIPES[b.recipe].out); }
         break;
       case 'seller':
-        P.coin.rotation.z += dt * 2;
-        P.coin.position.y = 2.0 + Math.sin(simTime * 2) * 0.12 + b.anim * 0.4;
+        P.coin.visible = b.anim > 0;
+        if (b.anim > 0) { P.coin.position.y = 2.0 + (1 - b.anim) * 1.0; P.coin.rotation.z += dt * 8; }
+        if (P.signMat) P.signMat.emissiveIntensity = 0.8 + b.anim * 0.8;
         break;
     }
   }
@@ -384,6 +571,7 @@ function on3dKey(e) {
     if (b) b.dir = (b.dir + (e.shiftKey ? 3 : 1)) % 4;
     return true;
   }
+  if (k === 'u') { if (v3.target) upgradeBuilding(bAt(v3.target.x, v3.target.y)); return true; }
   if (k === 'q') {
     const b = v3.target && bAt(v3.target.x, v3.target.y);
     if (b) { selectTool(b.type); toolDir = b.dir; if (b.recipe) state.recipe = b.recipe; renderInfo(); }

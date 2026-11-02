@@ -49,6 +49,31 @@ const BUILDINGS = {
 };
 const BUILD_ORDER = ['belt', 'miner', 'furnace', 'assembler', 'splitter', 'seller', 'bin'];
 
+// ---------- Gebäude-Stufen (pro Gebäude aufrüstbar) ----------
+// Stufe 1 = alt und rostig, Stufe 4 = Hightech. Höhere Stufen arbeiten schneller bzw. verkaufen teurer.
+const LEVELS = [
+  null,
+  { name: 'Alt',       speed: 1.0, price: 1.0 },
+  { name: 'Repariert', speed: 1.4, price: 1.1 },
+  { name: 'Modern',    speed: 1.9, price: 1.25 },
+  { name: 'Hightech',  speed: 2.6, price: 1.45 },
+];
+const MAX_LEVEL = 4;
+const LEVEL_COST = [0, 1.5, 4, 10]; // Faktor auf den Baupreis für Stufe n → n+1
+const UPGRADABLE = { miner: 1, furnace: 1, assembler: 1, seller: 1 };
+const lvSpeed = b => LEVELS[b.level || 1].speed;
+function levelUpCost(b) { return Math.round(BUILDINGS[b.type].cost * LEVEL_COST[b.level]); }
+function upgradeBuilding(b) {
+  if (!b || !UPGRADABLE[b.type]) return false;
+  if (b.level >= MAX_LEVEL) { toast('Schon auf höchster Stufe!', true); return false; }
+  const cost = levelUpCost(b);
+  if (state.money < cost) { toast('Nicht genug Geld!', true); return false; }
+  state.money -= cost; b.spent += cost; b.level++;
+  toast(`${BUILDINGS[b.type].name} → Stufe ${b.level} (${LEVELS[b.level].name})`);
+  if (selected === b) renderInfo();
+  return true;
+}
+
 // ---------- Upgrades ----------
 const UPGRADES = {
   belt:  { name: 'Schnellere Förderbänder', desc: '+25 % Bandgeschwindigkeit', base: 300, mult: 2.2, max: 6 },
@@ -133,7 +158,8 @@ function inMap(x, y) { return x >= 0 && y >= 0 && x < MAP_W && y < MAP_H; }
 function bAt(x, y) { return inMap(x, y) ? tiles[y][x].b : null; }
 
 function makeBuilding(type, x, y, dir) {
-  const b = { type, x, y, dir, inv: {}, out: [], prog: 0, item: null, p: 0, moved: false, rr: 0, fuel: 0, job: null, anim: 0 };
+  const b = { type, x, y, dir, inv: {}, out: [], prog: 0, item: null, p: 0, moved: false, rr: 0, fuel: 0, job: null, anim: 0,
+    level: 1, spent: BUILDINGS[type].cost };
   if (type === 'assembler') b.recipe = state.recipe;
   return b;
 }
@@ -164,7 +190,7 @@ function removeAt(x, y) {
   if (!b) return;
   tiles[y][x].b = null;
   buildings.splice(buildings.indexOf(b), 1);
-  state.money += Math.floor(BUILDINGS[b.type].cost * 0.75);
+  state.money += Math.floor((b.spent || BUILDINGS[b.type].cost) * 0.75);
   if (selected === b) { selected = null; renderInfo(); }
 }
 
@@ -210,7 +236,7 @@ function accept(b, item, dir) {
       return true;
     }
     case 'seller': {
-      const v = Math.round(ITEMS[item].value * priceMult() * 100) / 100;
+      const v = Math.round(ITEMS[item].value * priceMult() * LEVELS[b.level || 1].price * 100) / 100;
       state.money += v;
       state.sold[item] = (state.sold[item] || 0) + 1;
       incomeLog.push([simTime, v]);
@@ -264,7 +290,7 @@ function update(dt) {
       }
       case 'miner': {
         if (b.out.length < 2) {
-          b.prog += dt / minerTime();
+          b.prog += dt * lvSpeed(b) / minerTime();
           if (b.prog >= 1) { b.prog = 0; b.out.push(tiles[b.y][b.x].ore); }
           b.anim = (b.anim + dt * 4) % 1;
         }
@@ -280,7 +306,7 @@ function update(dt) {
           }
         }
         if (b.job) {
-          b.prog += dt * craftMult() / b.job.time;
+          b.prog += dt * craftMult() * lvSpeed(b) / b.job.time;
           if (b.prog >= 1) { b.out.push(b.job.out); b.job = null; b.prog = 0; }
         }
         pushOutput(b);
@@ -296,7 +322,7 @@ function update(dt) {
           }
         }
         if (b.job) {
-          b.prog += dt * craftMult() / b.job.time;
+          b.prog += dt * craftMult() * lvSpeed(b) / b.job.time;
           if (b.prog >= 1) {
             for (let i = 0; i < b.job.count; i++) b.out.push(b.job.out);
             b.job = null; b.prog = 0;
@@ -473,6 +499,14 @@ function drawBuilding(c, b, px, py, ghost) {
       c.strokeStyle = '#333'; c.lineWidth = 1.5;
       for (let i = 0; i < 3; i++) { c.beginPath(); c.moveTo(px + 11 + i * 5, py + 11); c.lineTo(px + 11 + i * 5, py + T - 7); c.stroke(); }
       break;
+    }
+  }
+  // Stufen-Anzeige
+  if (b.level > 1) {
+    const col = ['', '', '#c9c9c9', '#ffd75e', '#5ee0ff'][b.level];
+    for (let i = 0; i < b.level - 1; i++) {
+      c.fillStyle = '#000'; c.fillRect(px + 3 + i * 6, py + 3, 5, 5);
+      c.fillStyle = col; c.fillRect(px + 4 + i * 6, py + 4, 3, 3);
     }
   }
   c.restore();
@@ -659,20 +693,34 @@ function renderInfo(force = true) {
   const b = selected, d = BUILDINGS[b.type];
   let h = `<b>${d.name}</b><br><small>${d.desc}</small><br>`;
   switch (b.type) {
-    case 'miner': h += `Erz: ${ITEMS[tiles[b.y][b.x].ore].name}<br>Tempo: ${(60 / minerTime()).toFixed(0)} / min`; break;
+    case 'miner': h += `Erz: ${ITEMS[tiles[b.y][b.x].ore].name}<br>Tempo: ${(60 * lvSpeed(b) / minerTime()).toFixed(0)} / min`; break;
     case 'furnace': h += `Brennstoff: ${b.fuel} Vorgänge<br>Lager: ${invText(b.inv)}<br>Ausgabe: ${b.out.length}`; break;
     case 'assembler': h += `Lager: ${invText(b.inv)}<br>Ausgabe: ${b.out.length}` + recipeButtons(b.recipe); break;
     case 'belt': case 'splitter': h += `Inhalt: ${b.item ? ITEMS[b.item].name : '–'}`; break;
     case 'seller': {
       h += '<small>Preise:</small><br>';
-      h += Object.entries(ITEMS).map(([, it]) => `${it.name}: ${(it.value * priceMult()).toFixed(1)} €`).join('<br>');
+      h += Object.entries(ITEMS).map(([, it]) => `${it.name}: ${(it.value * priceMult() * LEVELS[b.level].price).toFixed(1)} €`).join('<br>');
       break;
     }
+  }
+  if (UPGRADABLE[b.type]) {
+    const L = LEVELS[b.level];
+    h += `<div class="level"><b>Stufe ${b.level}/${MAX_LEVEL}: ${L.name}</b><br><small>`;
+    h += b.type === 'seller' ? `Preise ×${L.price.toFixed(2).replace('.', ',')}` : `Tempo ×${L.speed.toFixed(1).replace('.', ',')}`;
+    h += '</small>';
+    if (b.level < MAX_LEVEL) {
+      const N = LEVELS[b.level + 1], cost = levelUpCost(b);
+      const eff = b.type === 'seller' ? `Preise ×${N.price.toFixed(2).replace('.', ',')}` : `Tempo ×${N.speed.toFixed(1).replace('.', ',')}`;
+      h += `<button id="btnLevelUp" ${state.money < cost ? 'disabled' : ''}>Aufrüsten → ${N.name} (${fmt(cost)} €)<br><small>${eff}${touchUI ? '' : ' · Taste U'}</small></button>`;
+    }
+    h += '</div>';
   }
   if (!force && h === infoKey) return;
   infoKey = h;
   el.innerHTML = h;
   bindRecipeButtons();
+  const up = $('btnLevelUp');
+  if (up) up.onclick = () => upgradeBuilding(selected);
 }
 
 function recipeButtons(active) {
@@ -822,6 +870,7 @@ addEventListener('keydown', e => {
     else if (selected && !mouse.inside) selected.dir = (selected.dir + 1) % 4;
     else if (mouse.inside) { const b = bAt(mouse.tx, mouse.ty); if (b) b.dir = (b.dir + (e.shiftKey ? 3 : 1)) % 4; }
   } else if (k === 'x') setDemolish(!demolish);
+  else if (k === 'u') upgradeBuilding((mouse.inside && bAt(mouse.tx, mouse.ty)) || selected);
   else if (k === 'escape') { selectTool(null); selected = null; renderInfo(); closeModals(); }
   else if (k === ' ') { togglePause(); e.preventDefault(); }
   else if (k === 'q') {
@@ -944,7 +993,7 @@ $('btnNewYes').onclick = () => {
 // =====================================================================
 function save() {
   try {
-    const data = { state, buildings: buildings.map(b => [b.type, b.x, b.y, b.dir, b.recipe || null]) };
+    const data = { state, buildings: buildings.map(b => [b.type, b.x, b.y, b.dir, b.recipe || null, b.level, b.spent]) };
     localStorage.setItem(SAVE_KEY, JSON.stringify(data));
   } catch (e) { /* Speicher nicht verfügbar */ }
 }
@@ -958,9 +1007,10 @@ function startGame(data) {
   buildings = [];
   incomeLog = []; simTime = 0; selected = null;
   if (data) {
-    for (const [type, x, y, dir, recipe] of data.buildings) {
+    for (const [type, x, y, dir, recipe, level, spent] of data.buildings) {
       const b = place(type, x, y, dir, true);
       if (b && recipe) b.recipe = recipe;
+      if (b && level) { b.level = level; b.spent = spent || b.spent; }
     }
   }
   cam.x = MAP_W * TILE / 2 - innerWidth / cam.zoom / 2;

@@ -13,7 +13,7 @@
 <canvas id="game"></canvas>
 <canvas id="game3d" class="hidden"></canvas>
 <div id="crosshair" class="hidden"></div>
-<div id="lockHint" class="hidden">Klicken, um loszulaufen<br><small>WASD laufen · Maus umsehen · Leertaste springen · Shift rennen<br>Linksklick bauen · Rechtsklick abreißen · Mausrad/1–7 Gebäude · R drehen · Esc Maus freigeben</small></div>
+<div id="lockHint" class="hidden">Klicken, um loszulaufen<br><small>WASD laufen · Maus umsehen · Leertaste springen · Shift rennen<br>Linksklick bauen · Rechtsklick abreißen · Mausrad/1–7 Gebäude · R drehen · U aufrüsten · Esc Maus freigeben</small></div>
 
 <div id="topbar">
   <div class="stat"><span class="label">Geld</span><span id="money">0 €</span></div>
@@ -61,6 +61,7 @@
       <li><b>Montierer</b> bauen Bauteile. Klicke einen Montierer an, um das Rezept zu wählen.</li>
       <li><b>Verteiler</b> verteilt Gegenstände abwechselnd nach vorne, links und rechts.</li>
       <li><b>Verkauf</b> nimmt alles an und bringt Geld.</li>
+      <li><b>Aufrüsten:</b> Klicke ein Gebäude an. Bohrer, Öfen, Montierer und Verkaufsstellen haben 4 Stufen: Alt → Repariert → Modern → Hightech. Jede Stufe arbeitet schneller (Verkauf: bessere Preise) und sieht neuer aus.</li>
     </ul>
     <div class="touch-only">
     <h3>Am Handy / Tablet</h3>
@@ -78,7 +79,7 @@
       <li><b>R</b>: drehen · <b>Linksklick</b>: bauen / anklicken</li>
       <li><b>Rechtsklick</b>: abreißen (75 % Rückerstattung)</li>
       <li><b>WASD / Pfeiltasten</b> oder <b>mittlere Maustaste</b>: Kamera bewegen · <b>Mausrad</b>: Zoom</li>
-      <li><b>X</b>: Abriss-Werkzeug</li>
+      <li><b>X</b>: Abriss-Werkzeug · <b>U</b>: Gebäude unter der Maus aufrüsten</li>
       <li><b>Leertaste</b>: Pause (im 3D-Modus: springen, Pause mit <b>P</b>)</li>
       <li><b>V</b> oder Knopf <b>3D</b>: durch die Fabrik laufen (WASD + Maus)</li>
     </ul>
@@ -100,6 +101,7 @@
 
 <script src="lib/three.min.js"></script>
 <script src="game.js"></script>
+<script src="textures3d.js"></script>
 <script src="three3d.js"></script>
 </body>
 </html>
