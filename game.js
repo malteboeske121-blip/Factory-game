@@ -804,9 +804,10 @@ for (const m of document.querySelectorAll('.modal')) {
 $('btn3d').onclick = () => { set3d(!mode3d); $('btn3d').blur(); };
 $('btnHelp').onclick = () => $('help').classList.remove('hidden');
 $('btnUpgrades').onclick = () => { renderUpgrades(); $('upgrades').classList.remove('hidden'); };
-$('btnNew').onclick = () => {
-  if (!confirm('Wirklich ein neues Spiel starten? Der aktuelle Fortschritt geht verloren.')) return;
-  localStorage.removeItem(SAVE_KEY);
+$('btnNew').onclick = () => $('newGame').classList.remove('hidden');
+$('btnNewYes').onclick = () => {
+  $('newGame').classList.add('hidden');
+  try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* ignorieren */ }
   startGame(null);
 };
 
