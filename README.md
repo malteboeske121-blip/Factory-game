@@ -10,7 +10,23 @@ Mit dem Geld baust du deine Fabrik aus, kaufst Upgrades und erfüllst Aufträge.
 
 Produktionskette: Erz → Platten → Zahnräder / Kupferkabel → Schaltkreise → Motoren → Roboter
 
-## Steuerung
+## 3D-Modus
+Mit **V** oder dem Knopf **3D-Ansicht** läufst du in der Ego-Perspektive durch deine Fabrik.
+Ins Bild klicken, um die Maus zu fangen; **Esc** gibt sie wieder frei.
+
+| Taste | Aktion |
+|---|---|
+| WASD | laufen (Shift = rennen) |
+| Maus | umsehen |
+| Leertaste | springen |
+| Linksklick / Rechtsklick | bauen / abreißen (Fadenkreuz-Feld) |
+| Mausrad oder 1–7 | Gebäude wählen |
+| R / Q | drehen / Gebäude kopieren |
+| P | Pause |
+
+Förderbänder tragen dich mit! 3D nutzt [three.js](https://threejs.org) (liegt in `lib/`, MIT-Lizenz).
+
+## Steuerung (2D)
 | Taste | Aktion |
 |---|---|
 | 1–7 | Gebäude wählen |

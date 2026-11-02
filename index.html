@@ -8,11 +8,15 @@
 </head>
 <body>
 <canvas id="game"></canvas>
+<canvas id="game3d" class="hidden"></canvas>
+<div id="crosshair" class="hidden"></div>
+<div id="lockHint" class="hidden">Klicken, um loszulaufen<br><small>WASD laufen · Maus umsehen · Leertaste springen · Shift rennen<br>Linksklick bauen · Rechtsklick abreißen · Mausrad/1–7 Gebäude · R drehen · Esc Maus freigeben</small></div>
 
 <div id="topbar">
   <div class="stat"><span class="label">Geld</span><span id="money">0 €</span></div>
   <div class="stat"><span class="label">Einkommen</span><span id="income">0 €/s</span></div>
   <div class="spacer"></div>
+  <button id="btn3d">3D-Ansicht</button>
   <button id="btnUpgrades">Upgrades</button>
   <button id="btnHelp">Hilfe</button>
   <button id="btnNew">Neues Spiel</button>
@@ -53,7 +57,8 @@
       <li><b>R</b>: drehen · <b>Linksklick</b>: bauen / anklicken</li>
       <li><b>Rechtsklick</b>: abreißen (75 % Rückerstattung)</li>
       <li><b>WASD / Pfeiltasten</b> oder <b>mittlere Maustaste</b>: Kamera bewegen · <b>Mausrad</b>: Zoom</li>
-      <li><b>Leertaste</b>: Pause</li>
+      <li><b>Leertaste</b>: Pause (im 3D-Modus: springen, Pause mit <b>P</b>)</li>
+      <li><b>V</b> oder Knopf <b>3D-Ansicht</b>: durch die Fabrik laufen (WASD + Maus)</li>
     </ul>
     <button class="close">Los geht's!</button>
   </div>
@@ -62,6 +67,8 @@
 <div id="toast"></div>
 <div id="pause" class="hidden">PAUSE</div>
 
+<script src="lib/three.min.js"></script>
 <script src="game.js"></script>
+<script src="three3d.js"></script>
 </body>
 </html>

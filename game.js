@@ -332,6 +332,7 @@ let tool = null;     // ausgewählter Gebäudetyp
 let toolDir = 0;
 let selected = null; // angeklicktes Gebäude
 let paused = false;
+let mode3d = false; // 3D-Modus (siehe three3d.js)
 
 function resize() {
   canvas.width = innerWidth * devicePixelRatio;
@@ -778,8 +779,10 @@ function clampCam() {
 
 addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT') return;
-  keys[e.key.toLowerCase()] = true;
   const k = e.key.toLowerCase();
+  if (k === 'v') { set3d(!mode3d); return; }
+  if (mode3d && on3dKey(e)) return;
+  keys[k] = true;
   const idx = BUILD_ORDER.findIndex(t => BUILDINGS[t].key === e.key);
   if (idx >= 0) selectTool(tool === BUILD_ORDER[idx] ? null : BUILD_ORDER[idx]);
   else if (k === 'r') {
@@ -798,6 +801,7 @@ function closeModals() { for (const m of document.querySelectorAll('.modal')) m.
 for (const m of document.querySelectorAll('.modal')) {
   m.addEventListener('click', e => { if (e.target === m || e.target.classList.contains('close')) m.classList.add('hidden'); });
 }
+$('btn3d').onclick = () => { set3d(!mode3d); $('btn3d').blur(); };
 $('btnHelp').onclick = () => $('help').classList.remove('hidden');
 $('btnUpgrades').onclick = () => { renderUpgrades(); $('upgrades').classList.remove('hidden'); };
 $('btnNew').onclick = () => {
@@ -844,6 +848,10 @@ let uiTimer = 0, saveTimer = 0;
 function frame(now) {
   let dt = Math.min(0.1, (now - last) / 1000);
   last = now;
+  if (mode3d) {
+    if (!paused) { const steps = Math.ceil(dt / (1 / 60)); for (let i = 0; i < steps; i++) update(dt / steps); }
+    render3d(dt);
+  } else {
   // Kamera per Tastatur
   const sp = 500 / cam.zoom * dt;
   if (keys['w'] || keys['arrowup']) cam.y -= sp;
@@ -859,6 +867,7 @@ function frame(now) {
     for (let i = 0; i < steps; i++) update(dt / steps);
   }
   render();
+  }
 
   uiTimer += dt; saveTimer += dt;
   if (uiTimer > 0.2) {
@@ -870,7 +879,10 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
-resize();
-startGame(load());
-addEventListener('beforeunload', save);
-requestAnimationFrame(frame);
+addEventListener('load', () => {
+  resize();
+  startGame(load());
+  addEventListener('beforeunload', save);
+  last = performance.now();
+  requestAnimationFrame(frame);
+});
