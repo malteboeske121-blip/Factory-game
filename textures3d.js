@@ -400,3 +400,128 @@ function metalMat(name, color, level, extra = {}) {
     metalness: [0, 0.2, 0.25, 0.3, 0.35][level],
   });
 }
+
+// =====================================================================
+//  Erze: Gestein mit Erzadern (Farbe) + Glanz-Maske (Metall/Rauheit)
+// =====================================================================
+const ORE_STYLE = {
+  // Grundgestein, Adernfarben, Glanzfarbe, wie metallisch die Adern sind
+  iron_ore:   { stone: ['#5e5a56', '#47423e'], vein: ['#8a3e22', '#a5532c', '#6b2c18'], fleck: '#c9ccd2', metal: 0.45 },
+  copper_ore: { stone: ['#5c574f', '#45403a'], vein: ['#d98a2b', '#f0b040', '#b8641e'], fleck: '#ffd36a', metal: 0.5, patina: '#4e8a64' },
+  coal:       { stone: ['#3a3836', '#2a2826'], vein: ['#0c0c0e', '#141416', '#1c1c20'], fleck: '#4a4e58', metal: 0.25 },
+};
+
+function oreTex(ore) {
+  const key = 'ore-' + ore;
+  if (texCache[key]) return texCache[key];
+  const st = ORE_STYLE[ore], rnd = texRng(ore.length * 31 + 7);
+  const [c, g] = newCanvas(), [mc, m] = newCanvas(), [bc, b] = newCanvas();
+  // Grundgestein mit Schichtung
+  const grd = g.createLinearGradient(0, 0, TEX_SIZE, TEX_SIZE);
+  grd.addColorStop(0, st.stone[0]); grd.addColorStop(1, st.stone[1]);
+  g.fillStyle = grd; g.fillRect(0, 0, TEX_SIZE, TEX_SIZE);
+  for (let i = 0; i < 40; i++) blotch(g, rnd() * TEX_SIZE, rnd() * TEX_SIZE, 10 + rnd() * 30, rnd() < 0.5 ? '#000' : '#fff', 0.05, rnd);
+  addNoise(g, 34, rnd);
+  // Glanzmaske: G = Rauheit (hell = rau), B = Metall (hell = metallisch)
+  m.fillStyle = 'rgb(0,235,0)'; m.fillRect(0, 0, TEX_SIZE, TEX_SIZE);
+  b.fillStyle = '#808080'; b.fillRect(0, 0, TEX_SIZE, TEX_SIZE); addNoise(b, 60, rnd);
+  // Risse im Gestein
+  g.strokeStyle = 'rgba(0,0,0,.45)'; g.lineWidth = 1.3; b.strokeStyle = '#202020'; b.lineWidth = 2;
+  for (let i = 0; i < 9; i++) {
+    let x = rnd() * TEX_SIZE, y = rnd() * TEX_SIZE;
+    for (const ctx2 of [g, b]) { ctx2.beginPath(); ctx2.moveTo(x, y); }
+    for (let k = 0; k < 7; k++) { x += (rnd() - 0.5) * 34; y += (rnd() - 0.5) * 34; g.lineTo(x, y); b.lineTo(x, y); }
+    g.stroke(); b.stroke();
+  }
+  // Erzadern: geschwungene, dicke Bänder
+  const metalB = Math.round(st.metal * 255);
+  for (let i = 0; i < 7; i++) {
+    let x = rnd() * TEX_SIZE, y = rnd() * TEX_SIZE, a = rnd() * Math.PI * 2;
+    const w = 4 + rnd() * 9, col = st.vein[i % st.vein.length];
+    const pts = [[x, y]];
+    for (let k = 0; k < 9; k++) { a += (rnd() - 0.5) * 1.1; x += Math.cos(a) * 18; y += Math.sin(a) * 18; pts.push([x, y]); }
+    const stroke = (ctx2, style, lw) => {
+      ctx2.strokeStyle = style; ctx2.lineWidth = lw; ctx2.lineCap = 'round'; ctx2.lineJoin = 'round';
+      ctx2.beginPath(); pts.forEach(([px, py], j) => j ? ctx2.lineTo(px, py) : ctx2.moveTo(px, py)); ctx2.stroke();
+    };
+    stroke(g, 'rgba(0,0,0,.35)', w + 3);
+    stroke(g, col, w);
+    stroke(m, `rgb(0,${ore === 'coal' ? 40 : 90},${metalB})`, w);
+    stroke(b, '#d0d0d0', w);
+  }
+  // Erzbrocken / Nester
+  for (let i = 0; i < 26; i++) {
+    const x = rnd() * TEX_SIZE, y = rnd() * TEX_SIZE, r = 3 + rnd() * 8, col = st.vein[i % st.vein.length];
+    g.fillStyle = col; g.beginPath();
+    for (let k = 0; k < 7; k++) { const aa = k / 7 * Math.PI * 2, rr = r * (0.6 + rnd() * 0.5); g.lineTo(x + Math.cos(aa) * rr, y + Math.sin(aa) * rr); }
+    g.closePath(); g.fill();
+    m.fillStyle = `rgb(0,${ore === 'coal' ? 30 : 80},${metalB})`; m.beginPath(); m.arc(x, y, r * 0.9, 0, 7); m.fill();
+    b.fillStyle = '#e0e0e0'; b.beginPath(); b.arc(x, y, r, 0, 7); b.fill();
+    // Lichtkante
+    g.fillStyle = 'rgba(255,255,255,.25)'; g.beginPath(); g.arc(x - r * 0.3, y - r * 0.3, r * 0.35, 0, 7); g.fill();
+  }
+  // Glitzerpunkte
+  for (let i = 0; i < 90; i++) {
+    const x = rnd() * TEX_SIZE, y = rnd() * TEX_SIZE, r = 0.6 + rnd() * 1.6;
+    g.fillStyle = st.fleck; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
+    m.fillStyle = `rgb(0,20,${metalB})`; m.beginPath(); m.arc(x, y, r + 0.5, 0, 7); m.fill();
+  }
+  // Kupfer: grüne Patina-Flecken
+  if (st.patina) for (let i = 0; i < 6; i++) blotch(g, rnd() * TEX_SIZE, rnd() * TEX_SIZE, 3 + rnd() * 6, st.patina, 0.35, rnd);
+  const t = { map: finish(c), rough: finish(mc), bump: finish(bc) };
+  return (texCache[key] = t);
+}
+
+// Einfache Himmel-Umgebung, damit metallische Erzadern glänzen
+let oreEnv = null;
+function getOreEnv(renderer) {
+  if (oreEnv) return oreEnv;
+  const [c, g] = newCanvas(64, 32);
+  const grd = g.createLinearGradient(0, 0, 0, 32);
+  grd.addColorStop(0, '#d8ecff'); grd.addColorStop(0.48, '#9cc8ec'); grd.addColorStop(0.52, '#6a7a52'); grd.addColorStop(1, '#3a4630');
+  g.fillStyle = grd; g.fillRect(0, 0, 64, 32);
+  const t = new THREE.CanvasTexture(c);
+  t.mapping = THREE.EquirectangularReflectionMapping;
+  const pm = new THREE.PMREMGenerator(renderer);
+  oreEnv = pm.fromEquirectangular(t).texture;
+  pm.dispose(); t.dispose();
+  return oreEnv;
+}
+
+function oreMat(ore, renderer) {
+  const key = 'oremat-' + ore;
+  if (matCache[key]) return matCache[key];
+  const t = oreTex(ore);
+  const m = new THREE.MeshStandardMaterial({
+    map: t.map, roughnessMap: t.rough, metalnessMap: t.rough, bumpMap: t.bump, bumpScale: 0.04,
+    roughness: 1, metalness: 1, flatShading: true, envMap: getOreEnv(renderer), envMapIntensity: 0.22,
+  });
+  return (matCache[key] = m);
+}
+
+// glänzende Kristalle/Nuggets, die aus dem Gestein ragen
+function nuggetMat(ore, renderer) {
+  const key = 'nug-' + ore;
+  if (matCache[key]) return matCache[key];
+  const opts = {
+    iron_ore:   { color: 0xa8aab0, metalness: 0.9, roughness: 0.32 },
+    copper_ore: { color: 0xf0a238, metalness: 1.0, roughness: 0.22, emissive: 0x3a1e00 },
+    coal:       { color: 0x18181c, metalness: 0.35, roughness: 0.12 },
+  }[ore];
+  const m = new THREE.MeshStandardMaterial(Object.assign({ flatShading: true, envMap: getOreEnv(renderer), envMapIntensity: 0.9 }, opts));
+  return (matCache[key] = m);
+}
+
+// Unregelmäßiger Felsbrocken (Ecken werden nach Position verschoben, damit keine Löcher entstehen)
+function rockGeometry(seed, detail = 1, amount = 0.28) {
+  const geo = new THREE.IcosahedronGeometry(1, detail);
+  const p = geo.attributes.position;
+  const h = (x, y, z) => { const s = Math.sin(x * 12.9898 + y * 78.233 + z * 37.719 + seed * 4.1) * 43758.5453; return s - Math.floor(s); };
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    const k = 1 + (h(Math.round(x * 100), Math.round(y * 100), Math.round(z * 100)) - 0.5) * 2 * amount;
+    p.setXYZ(i, x * k, y * k * 0.85, z * k);
+  }
+  geo.computeVertexNormals();
+  return geo;
+}

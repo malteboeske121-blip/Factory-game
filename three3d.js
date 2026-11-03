@@ -91,6 +91,8 @@ function init3d() {
   ig.motor = new THREE.CylinderGeometry(0.2, 0.2, 0.36, 14);
   ig.robot = new THREE.BoxGeometry(0.36, 0.48, 0.3);
   for (const [k, it] of Object.entries(ITEMS)) v3.itemMats[k] = M(it.color, { metalness: it.shape === 'plate' ? 0.5 : 0.15 });
+  for (const ore of ['iron_ore', 'copper_ore', 'coal']) v3.itemMats[ore] = oreMat(ore, r);
+  ig.rock = rockGeometry(5, 1, 0.3); ig.rock.scale(0.22, 0.24, 0.22);
 
   // Bodenmarkierung und Bauvorschau
   v3.highlight = new THREE.Mesh(new THREE.PlaneGeometry(T3 * 0.98, T3 * 0.98),
@@ -139,20 +141,38 @@ function init3d() {
 // Bodentextur aus der Karte erzeugen
 function buildGround() {
   if (v3.ground) { v3.scene.remove(v3.ground); v3.ground.material.map.dispose(); v3.ground.geometry.dispose(); }
-  const S = 16;
+  const S = touchUI ? 24 : 32;
   const c = document.createElement('canvas'); c.width = MAP_W * S; c.height = MAP_H * S;
   const g = c.getContext('2d');
-  const oreCol = { iron_ore: '#7d6f66', copper_ore: '#b5622f', coal: '#1e1e1e' };
+  // Gras
   for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) {
-    const t = tiles[y][x];
-    const v = 70 + Math.floor(t.v * 14);
+    const v = 70 + Math.floor(tiles[y][x].v * 14);
     g.fillStyle = `rgb(${v - 18},${v + 24},${v - 30})`;
     g.fillRect(x * S, y * S, S, S);
-    if (t.ore) {
-      g.fillStyle = 'rgba(60,45,30,.45)'; g.fillRect(x * S, y * S, S, S);
-      g.fillStyle = oreCol[t.ore];
-      const r = rng(x * 9973 + y * 31);
-      for (let i = 0; i < 5; i++) { g.beginPath(); g.arc(x * S + 2 + r() * 12, y * S + 2 + r() * 12, 1.2 + r() * 1.8, 0, 7); g.fill(); }
+  }
+  const r0 = rng(12345);
+  for (let i = 0; i < MAP_W * MAP_H * 3; i++) { // Grashalme / Farbtupfer
+    g.fillStyle = r0() < 0.5 ? 'rgba(20,50,10,.18)' : 'rgba(160,200,90,.12)';
+    g.fillRect(r0() * c.width, r0() * c.height, 1.5, 3);
+  }
+  // Erzfelder: dunkle Erde mit weichem Rand, Kies und Erzkörnern
+  const ground = { iron_ore: ['#4e3f34', '#7a4228', '#a8a4a0'], copper_ore: ['#4d4032', '#a8702a', '#e0b860'], coal: ['#2c2722', '#101012', '#3a3e46'] };
+  for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) {
+    const t = tiles[y][x];
+    if (!t.ore) continue;
+    const [earth, ore] = ground[t.ore], r = rng(x * 9973 + y * 31);
+    const cx = (x + 0.5) * S, cy = (y + 0.5) * S;
+    const grd = g.createRadialGradient(cx, cy, S * 0.2, cx, cy, S * 0.85);
+    grd.addColorStop(0, earth); grd.addColorStop(1, earth + '00');
+    g.fillStyle = grd; g.fillRect(cx - S, cy - S, S * 2, S * 2);
+    for (let i = 0; i < 14; i++) { // Kies
+      const v = 90 + Math.floor(r() * 60);
+      g.fillStyle = `rgba(${v},${v - 6},${v - 12},.55)`;
+      g.beginPath(); g.arc(x * S + r() * S, y * S + r() * S, 0.6 + r() * 1.4, 0, 7); g.fill();
+    }
+    for (let i = 0; i < 7; i++) { // Erzkörner mit Glanzpunkt
+      const px = x * S + 2 + r() * (S - 4), py = y * S + 2 + r() * (S - 4), rr = (0.6 + r() * 1.2) * S / 32;
+      g.fillStyle = ore; g.beginPath(); g.arc(px, py, rr, 0, 7); g.fill();
     }
   }
   g.strokeStyle = 'rgba(0,0,0,.12)'; g.lineWidth = 1;
@@ -171,9 +191,77 @@ function buildGround() {
   v3.scene.add(mesh);
   v3.ground = mesh;
   v3.groundTiles = tiles;
+  buildOreRocks();
   // vorhandene Gebäude-Objekte verwerfen
   for (const o of v3.objs.values()) v3.scene.remove(o);
   v3.objs.clear();
+}
+
+// ---------- Erzbrocken, die aus dem Boden ragen ----------
+// Pro Erzsorte ein InstancedMesh für Felsen und eins für glänzende Nuggets/Kristalle.
+function buildOreRocks() {
+  if (v3.ore) for (const m of v3.ore.meshes) { v3.scene.remove(m); m.dispose && m.dispose(); }
+  if (!v3.rockGeo) {
+    v3.rockGeo = rockGeometry(1, 1, 0.3);
+    v3.nugGeo = { iron_ore: rockGeometry(2, 0, 0.35), copper_ore: rockGeometry(3, 0, 0.45), coal: new THREE.OctahedronGeometry(1, 0) };
+  }
+  const per = { iron_ore: [], copper_ore: [], coal: [] };
+  for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) if (tiles[y][x].ore) per[tiles[y][x].ore].push([x, y]);
+  const meshes = [], tileRefs = new Map(); // "x,y" -> [[mesh, index], ...]
+  const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), E = new THREE.Euler(), V = new THREE.Vector3(), Sc = new THREE.Vector3();
+  const rocksPer = touchUI ? 2 : 3;
+  for (const ore of Object.keys(per)) {
+    const list = per[ore];
+    if (!list.length) continue;
+    const rocks = new THREE.InstancedMesh(v3.rockGeo, oreMat(ore, v3.renderer), list.length * rocksPer);
+    const nugs = new THREE.InstancedMesh(v3.nugGeo[ore], nuggetMat(ore, v3.renderer), list.length * rocksPer * 2);
+    rocks.castShadow = rocks.receiveShadow = true; nugs.castShadow = true;
+    rocks.userData.base = []; nugs.userData.base = [];
+    let ri = 0, ni = 0;
+    for (const [x, y] of list) {
+      const r = rng(x * 7919 + y * 104729 + ore.length);
+      const refs = [];
+      for (let k = 0; k < rocksPer; k++) {
+        const px = (x + 0.18 + r() * 0.64) * T3, pz = (y + 0.18 + r() * 0.64) * T3;
+        const w = 0.22 + r() * 0.3, hgt = 0.16 + r() * 0.28;
+        E.set(r() * 0.5, r() * Math.PI * 2, r() * 0.5); Q.setFromEuler(E);
+        V.set(px, hgt * 0.35, pz); Sc.set(w, hgt, w * (0.7 + r() * 0.5));
+        M.compose(V, Q, Sc); rocks.setMatrixAt(ri, M); rocks.userData.base.push(M.clone()); refs.push([rocks, ri++]);
+        // 2 Kristalle/Nuggets pro Fels, schräg aus der Oberfläche ragend
+        for (let j = 0; j < 2; j++) {
+          const a = r() * Math.PI * 2, ns = (ore === 'coal' ? 0.07 : 0.06) + r() * 0.07;
+          V.set(px + Math.cos(a) * w * 0.55, hgt * 0.35 + hgt * (0.45 + r() * 0.4), pz + Math.sin(a) * w * 0.55);
+          E.set(r() * 3, r() * 3, r() * 3); Q.setFromEuler(E);
+          Sc.set(ns, ns * (ore === 'coal' ? 1.6 : 1.1), ns);
+          M.compose(V, Q, Sc); nugs.setMatrixAt(ni, M); nugs.userData.base.push(M.clone()); refs.push([nugs, ni++]);
+        }
+      }
+      tileRefs.set(x + ',' + y, refs);
+    }
+    rocks.instanceMatrix.needsUpdate = nugs.instanceMatrix.needsUpdate = true;
+    v3.scene.add(rocks, nugs); meshes.push(rocks, nugs);
+  }
+  v3.ore = { meshes, tileRefs, hidden: new Set(), sig: '' };
+}
+
+// Erzbrocken unter Gebäuden ausblenden (sonst ragen sie durch den Boden der Maschinen)
+const ZERO_M = new THREE.Matrix4().makeScale(0, 0, 0);
+function updateOreVisibility() {
+  const O = v3.ore;
+  if (!O) return;
+  let sig = buildings.length + ':';
+  let h = 0;
+  for (const b of buildings) h = (h * 31 + b.x * 977 + b.y) | 0;
+  sig += h;
+  if (sig === O.sig) return;
+  O.sig = sig;
+  const now = new Set();
+  for (const b of buildings) now.add(b.x + ',' + b.y);
+  const touched = new Set();
+  for (const k of now) if (!O.hidden.has(k) && O.tileRefs.has(k)) { for (const [m, i] of O.tileRefs.get(k)) { m.setMatrixAt(i, ZERO_M); touched.add(m); } }
+  for (const k of O.hidden) if (!now.has(k) && O.tileRefs.has(k)) { for (const [m, i] of O.tileRefs.get(k)) { m.setMatrixAt(i, m.userData.base[i]); touched.add(m); } }
+  for (const m of touched) m.instanceMatrix.needsUpdate = true;
+  O.hidden = now;
 }
 
 // ---------- Gebäudemodelle (zeigen nach +x) ----------
@@ -683,6 +771,7 @@ function render3d(dt) {
 
   if (!paused) v3.beltTex.offset.x -= beltSpeed() * dt / 2;
   syncBuildings(dt);
+  updateOreVisibility();
   syncItems();
   v3.target = v3.locked ? findTarget() : null;
   updateGhost();

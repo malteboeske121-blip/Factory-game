@@ -372,6 +372,73 @@ addEventListener('resize', resize);
 
 const ORE_COLORS = { iron_ore: '#7d6f66', copper_ore: '#b5622f', coal: '#262626' };
 
+// ---------- Erz-Kacheln für die 2D-Karte (einmal vorgerendert, mehrere Varianten) ----------
+const ORE_VARIANTS = 4;
+const ORE_LOOK = {
+  //           Erde        Gestein (hell, dunkel)    Erz (hell, dunkel)       Glanz
+  iron_ore:   { earth: '#5a4a3e', rock: ['#8d8781', '#5c5752'], ore: ['#b0603a', '#7a3520'], glint: '#e8ecf2' },
+  copper_ore: { earth: '#55473a', rock: ['#8a837a', '#5a544c'], ore: ['#ffc24a', '#c8741e'], glint: '#fff6c8', patina: '#4fae8a' },
+  coal:       { earth: '#33302c', rock: ['#4a4744', '#2a2826'], ore: ['#26262a', '#0a0a0c'], glint: '#9aa6c0' },
+};
+const oreSprites = {};
+function oreSprite(ore, v) {
+  const key = ore + v;
+  if (oreSprites[key]) return oreSprites[key];
+  const S = 64, c = document.createElement('canvas'); c.width = c.height = S;
+  const g = c.getContext('2d'), L = ORE_LOOK[ore], r = rng(ore.length * 101 + v * 977);
+  // weicher Erdfleck
+  const grd = g.createRadialGradient(S / 2, S / 2, S * 0.15, S / 2, S / 2, S * 0.62);
+  grd.addColorStop(0, L.earth); grd.addColorStop(0.75, L.earth + 'cc'); grd.addColorStop(1, L.earth + '00');
+  g.fillStyle = grd; g.fillRect(0, 0, S, S);
+  for (let i = 0; i < 30; i++) { const k = 80 + r() * 70; g.fillStyle = `rgba(${k},${k - 8},${k - 14},.5)`; g.fillRect(r() * S, r() * S, 1.5, 1.5); }
+  // Brocken (Schatten, Körper mit Licht von oben links, Erzadern, Glanz)
+  const n = 3 + Math.floor(r() * 2);
+  for (let i = 0; i < n; i++) {
+    const cx = 12 + r() * 40, cy = 12 + r() * 40, rad = 7 + r() * 7;
+    const pts = [];
+    for (let k = 0; k < 8; k++) { const a = k / 8 * Math.PI * 2 + r() * 0.3; const rr = rad * (0.7 + r() * 0.4); pts.push([cx + Math.cos(a) * rr, cy + Math.sin(a) * rr * 0.85]); }
+    const path = (dx = 0, dy = 0) => { g.beginPath(); pts.forEach(([px, py], j) => j ? g.lineTo(px + dx, py + dy) : g.moveTo(px + dx, py + dy)); g.closePath(); };
+    g.fillStyle = 'rgba(0,0,0,.4)'; path(2, 3); g.fill();
+    const body = g.createLinearGradient(cx - rad, cy - rad, cx + rad, cy + rad);
+    const isOre = ore === 'coal' || i % 2 === 0;
+    body.addColorStop(0, isOre && ore === 'coal' ? L.ore[0] : L.rock[0]); body.addColorStop(1, isOre && ore === 'coal' ? L.ore[1] : L.rock[1]);
+    g.fillStyle = body; path(); g.fill();
+    g.strokeStyle = 'rgba(0,0,0,.5)'; g.lineWidth = 1; g.stroke();
+    // Facettenkante
+    g.strokeStyle = 'rgba(255,255,255,.18)'; g.beginPath(); g.moveTo(pts[4][0], pts[4][1]); g.lineTo(cx, cy - 1); g.lineTo(pts[7][0], pts[7][1]); g.stroke();
+    g.save(); path(); g.clip();
+    if (ore !== 'coal') {
+      // Erzadern + Nuggets
+      g.strokeStyle = L.ore[1]; g.lineWidth = 3; g.beginPath(); g.moveTo(cx - rad, cy + r() * 6 - 3); g.quadraticCurveTo(cx, cy - 6 + r() * 12, cx + rad, cy + r() * 6 - 3); g.stroke();
+      g.strokeStyle = L.ore[0]; g.lineWidth = 1.6; g.stroke();
+      for (let k = 0; k < 3; k++) {
+        const nx = cx + (r() - 0.5) * rad, ny = cy + (r() - 0.5) * rad, nr = 1.6 + r() * 2.2;
+        const ng = g.createRadialGradient(nx - nr * 0.3, ny - nr * 0.3, 0, nx, ny, nr);
+        ng.addColorStop(0, L.ore[0]); ng.addColorStop(1, L.ore[1]);
+        g.fillStyle = ng; g.beginPath(); g.arc(nx, ny, nr, 0, 7); g.fill();
+      }
+      if (L.patina) { g.fillStyle = L.patina + '99'; g.beginPath(); g.arc(cx + rad * 0.3, cy + rad * 0.4, 2, 0, 7); g.fill(); }
+    } else {
+      // Kohle: glänzende schwarze Bruchflächen
+      for (let k = 0; k < 3; k++) {
+        const a = r() * Math.PI * 2, fx = cx + Math.cos(a) * rad * 0.4, fy = cy + Math.sin(a) * rad * 0.4;
+        g.fillStyle = 'rgba(120,130,160,.22)'; g.beginPath(); g.moveTo(fx, fy - 3); g.lineTo(fx + 4, fy); g.lineTo(fx, fy + 2); g.lineTo(fx - 3, fy); g.fill();
+      }
+    }
+    g.restore();
+    // Glanzpunkte
+    g.fillStyle = L.glint;
+    for (let k = 0; k < 2; k++) { const gx = cx - rad * 0.35 + r() * rad * 0.5, gy = cy - rad * 0.4 + r() * rad * 0.3; g.fillRect(gx, gy, 1.6, 1.6); }
+    g.fillStyle = 'rgba(255,255,255,.35)'; g.beginPath(); g.arc(cx - rad * 0.35, cy - rad * 0.35, rad * 0.18, 0, 7); g.fill();
+  }
+  // lose Erzkörner
+  for (let i = 0; i < 8; i++) {
+    const px = r() * S, py = r() * S;
+    g.fillStyle = L.ore[i % 2]; g.beginPath(); g.arc(px, py, 1 + r() * 1.5, 0, 7); g.fill();
+  }
+  return (oreSprites[key] = c);
+}
+
 function drawItem(c, item, x, y, s) {
   const it = ITEMS[item];
   c.save();
@@ -529,15 +596,7 @@ function render() {
     const g = 46 + Math.floor(t.v * 8);
     ctx.fillStyle = `rgb(${g - 6},${g + 10},${g - 10})`;
     ctx.fillRect(x * TILE, y * TILE, TILE, TILE);
-    if (t.ore) {
-      ctx.fillStyle = ORE_COLORS[t.ore];
-      const r = rng(x * 9973 + y * 31);
-      for (let i = 0; i < 5; i++) {
-        ctx.beginPath();
-        ctx.arc(x * TILE + 5 + r() * 22, y * TILE + 5 + r() * 22, 2.5 + r() * 3, 0, 7);
-        ctx.fill();
-      }
-    }
+    if (t.ore) ctx.drawImage(oreSprite(t.ore, (x * 7 + y * 13) % ORE_VARIANTS), x * TILE, y * TILE, TILE, TILE);
   }
   // Gitter
   ctx.strokeStyle = 'rgba(0,0,0,.12)'; ctx.lineWidth = 1;
