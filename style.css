@@ -47,16 +47,6 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 #pause { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); font-size: 48px; font-weight: 800;
   color: rgba(255,255,255,.6); pointer-events: none; z-index: 4; }
 
-#crosshair { position: fixed; left: 50%; top: 50%; width: 18px; height: 18px; transform: translate(-50%,-50%);
-  pointer-events: none; z-index: 4; }
-#crosshair::before, #crosshair::after { content: ""; position: absolute; background: rgba(255,255,255,.85);
-  box-shadow: 0 0 2px #000; }
-#crosshair::before { left: 8px; top: 0; width: 2px; height: 18px; }
-#crosshair::after { top: 8px; left: 0; height: 2px; width: 18px; }
-#lockHint { position: fixed; left: 50%; top: 50%; transform: translate(-50%, 30px); background: rgba(20,24,30,.85);
-  padding: 12px 20px; border-radius: 10px; text-align: center; font-size: 18px; pointer-events: none; z-index: 4;
-  border: 1px solid #444; }
-#lockHint small { font-size: 12px; color: #aab; line-height: 1.6; }
 
 /* ---------- Sonderfelder der Leiste ---------- */
 .slot.special .icon { font-size: 26px; line-height: 36px; height: 36px; }
@@ -66,15 +56,13 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 #btnCloseSide { position: absolute; top: 6px; right: 6px; padding: 4px 10px; }
 
 /* ---------- Touch-Steuerung 3D ---------- */
-#touch3d { position: fixed; inset: 0; pointer-events: none; z-index: 6; }
+#touch3d { position: fixed; inset: 0; pointer-events: none; z-index: 6; display: none; }
+body.touch #touch3d { display: block; }
 #joy { position: absolute; left: max(20px, env(safe-area-inset-left, 0px)); bottom: calc(110px + env(safe-area-inset-bottom, 0px));
   width: 130px; height: 130px; border-radius: 50%; background: rgba(20,24,30,.35); border: 2px solid rgba(255,255,255,.35);
   pointer-events: auto; touch-action: none; }
 #joyKnob { position: absolute; left: 50%; top: 50%; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%;
   background: rgba(255,215,94,.75); box-shadow: 0 2px 8px rgba(0,0,0,.4); pointer-events: none; }
-#btnJump { position: absolute; right: max(20px, env(safe-area-inset-right, 0px)); bottom: calc(130px + env(safe-area-inset-bottom, 0px));
-  width: 84px; height: 84px; border-radius: 50%; pointer-events: auto; touch-action: none; background: rgba(58,68,82,.8);
-  font-size: 13px; }
 
 /* ---------- Handy / schmale Bildschirme ---------- */
 @media (max-width: 760px), (pointer: coarse) {
@@ -97,8 +85,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   .slot canvas { width: 30px; height: 30px; }
   .modal-box { padding: 14px 16px; font-size: 14px; }
   #toast { top: calc(56px + env(safe-area-inset-top, 0px)); max-width: calc(100% - 24px); text-align: center; }
-  #lockHint { font-size: 15px; width: calc(100% - 32px); max-width: 420px; }
-}
+  }
 @media (min-width: 761px) { body.touch #hotbar { max-width: calc(100% - 16px); overflow-x: auto; } }
 .touch-only { display: none; }
 body.touch .touch-only { display: block; }

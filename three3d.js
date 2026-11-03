@@ -1,20 +1,20 @@
 'use strict';
 // =====================================================================
-//  3D-Modus: begehbare Fabrik in der Ego-Perspektive (Three.js)
+//  3D-Welt: Darstellung, Spielfigur, Kamera und Steuerung (Three.js)
 // =====================================================================
 
 
 const T3 = 2;            // Weltgröße eines Feldes
-const EYE = 1.7;         // Augenhöhe
 const P_RADIUS = 0.35;   // Spielerradius
-const REACH = 16;        // Bau-Reichweite
 
 const v3 = {
   ready: false, renderer: null, scene: null, camera: null, sun: null,
   ground: null, groundTiles: null, objs: new Map(), itemPool: [], itemUsed: 0,
   ghost: null, ghostType: null, ghostDir: -1, highlight: null,
-  player: { x: 0, y: 0, z: 0, vy: 0, yaw: 0, pitch: 0, onGround: true },
-  locked: false, target: null, keys: {}, beltTex: null, mats: {}, geos: {}, itemMats: {}, itemGeos: {},
+  player: { x: 0, y: 0, z: 0, vy: 0, face: 0, walk: 0, onGround: true },
+  cam: { yaw: 0, pitch: 0.85, dist: 16 }, // Kamera schaut der Figur von schräg oben zu
+  pointer: { x: 0, y: 0, inside: false },  // Maus/Finger auf dem Bild
+  target: null, keys: {}, beltTex: null, mats: {}, geos: {}, itemMats: {}, itemGeos: {},
   ray: null, iconCache: {}, joy: { x: 0, y: 0 }, look: null,
 };
 
@@ -102,37 +102,19 @@ function init3d() {
   scene.add(v3.highlight);
 
   v3.ray = new THREE.Raycaster();
-  v3.ray.far = REACH;
 
-  // Eingabe
-  cv.addEventListener('click', () => {
-    if (touchUI || v3.locked) return;
-    try { const r = cv.requestPointerLock(); if (r && r.catch) r.catch(() => {}); } catch (e) { /* nicht verfügbar */ }
-  });
-  setupTouch3d(cv);
-  document.addEventListener('pointerlockchange', () => {
-    if (touchUI) return;
-    v3.locked = document.pointerLockElement === cv;
-    document.getElementById('lockHint').classList.toggle('hidden', v3.locked || !mode3d);
-    if (!v3.locked) v3.keys = {};
-  });
-  document.addEventListener('mousemove', e => {
-    if (!v3.locked) return;
-    const p = v3.player;
-    p.yaw -= e.movementX * 0.0022;
-    p.pitch = Math.max(-1.5, Math.min(1.5, p.pitch - e.movementY * 0.0022));
-  });
-  cv.addEventListener('mousedown', e => { if (v3.locked) on3dClick(e.button); });
-  cv.addEventListener('contextmenu', e => e.preventDefault());
-  cv.addEventListener('wheel', e => {
-    if (!v3.locked) return;
-    e.preventDefault();
-    const order = [null, ...BUILD_ORDER];
-    let i = order.indexOf(tool) + (e.deltaY > 0 ? 1 : -1);
-    i = (i + order.length) % order.length;
-    selectTool(order[i]);
-  }, { passive: false });
-  addEventListener('keyup', e => { v3.keys[e.code] = false; });
+  // Markierung für das ausgewählte Gebäude (gelber Rahmen)
+  const mc = document.createElement('canvas'); mc.width = mc.height = 64;
+  const mg = mc.getContext('2d'); mg.strokeStyle = '#ffd75e'; mg.lineWidth = 6; mg.strokeRect(3, 3, 58, 58);
+  v3.selMark = new THREE.Mesh(new THREE.PlaneGeometry(T3, T3),
+    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(mc), transparent: true, depthWrite: false }));
+  v3.selMark.rotation.x = -Math.PI / 2; v3.selMark.position.y = 0.04; v3.selMark.visible = false;
+  scene.add(v3.selMark);
+
+  v3.avatar = makeAvatar();
+  scene.add(v3.avatar);
+  setupInput(cv);
+  resize3d();
 
   v3.ready = true;
   return true;
@@ -616,16 +598,50 @@ function updateGhost() {
   if (v3.ghost) { v3.ghost.position.set(cx, 0, cz); v3.ghost.rotation.y = -toolDir * Math.PI / 2; }
 }
 
+
+// =====================================================================
+//  Spielfigur (Bauarbeiter mit Helm), schaut nach +x
+// =====================================================================
+function makeAvatar() {
+  const g = new THREE.Group();
+  const M = (c, o = {}) => new THREE.MeshStandardMaterial(Object.assign({ color: c, roughness: 0.7 }, o));
+  const pants = M(0x2a3a5a), vest = M(0xff8a1e), skin = M(0xe8b890), helmet = M(0xffd23a, { roughness: 0.35 }),
+    boots = M(0x3a2a1a), refl = M(0xeeeeee, { emissive: 0x666666 }), eye = M(0x111111);
+  const box = (m, sx, sy, sz, x, y, z) => { const b = new THREE.Mesh(v3.geos.box, m); b.scale.set(sx, sy, sz); b.position.set(x, y, z); b.castShadow = true; return b; };
+  const leg = z => { const l = new THREE.Group(); l.position.set(0, 0.8, z); l.add(box(pants, 0.2, 0.68, 0.2, 0, -0.34, 0), box(boots, 0.28, 0.14, 0.24, 0.04, -0.73, 0)); return l; };
+  const arm = z => { const a = new THREE.Group(); a.position.set(0, 1.36, z); a.add(box(vest, 0.15, 0.5, 0.15, 0, -0.24, 0), box(skin, 0.13, 0.13, 0.13, 0, -0.54, 0)); return a; };
+  const legL = leg(-0.13), legR = leg(0.13), armL = arm(-0.33), armR = arm(0.33);
+  const head = new THREE.Mesh(v3.geos.sphere, skin); head.scale.set(0.34, 0.36, 0.34); head.position.y = 1.62; head.castShadow = true;
+  const hat = new THREE.Mesh(new THREE.SphereGeometry(0.5, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), helmet);
+  hat.scale.set(0.42, 0.34, 0.42); hat.position.y = 1.68; hat.castShadow = true;
+  g.add(legL, legR, armL, armR, head, hat,
+    box(vest, 0.32, 0.58, 0.5, 0, 1.1, 0), box(refl, 0.33, 0.06, 0.51, 0, 1.0, 0), box(refl, 0.33, 0.06, 0.51, 0, 1.22, 0),
+    box(helmet, 0.22, 0.03, 0.4, 0.17, 1.68, 0),
+    box(eye, 0.02, 0.05, 0.05, 0.17, 1.64, -0.07), box(eye, 0.02, 0.05, 0.05, 0.17, 1.64, 0.07));
+  g.userData = { legL, legR, armL, armR };
+  return g;
+}
+
 function playerInTile(x, y) {
   const p = v3.player, x0 = x * T3, z0 = y * T3;
   return p.x + P_RADIUS > x0 && p.x - P_RADIUS < x0 + T3 && p.z + P_RADIUS > z0 && p.z - P_RADIUS < z0 + T3;
 }
+// wird von place() in game.js abgefragt
+function blockedByPlayer(type, x, y) { return !!SOLID[type] && playerInTile(x, y); }
 
-function findTarget() {
-  const cam = v3.camera;
-  v3.ray.setFromCamera({ x: 0, y: 0 }, cam);
-  const objs = [v3.ground, ...v3.objs.values()];
-  const hit = v3.ray.intersectObjects(objs, true)[0];
+// Spieler in die Kartenmitte (freies Feld) setzen
+function resetPlayer() {
+  const p = v3.player;
+  p.x = MAP_W * T3 / 2; p.z = MAP_H * T3 / 2; p.y = 0; p.vy = 0;
+  for (let r = 0; r < 30 && solidAt(p.x, p.z); r++) p.z += T3;
+}
+
+// Welches Feld liegt unter Maus/Finger?
+const _ndc = new THREE.Vector2();
+function tileAtScreen(sx, sy) {
+  _ndc.set(sx / innerWidth * 2 - 1, -(sy / innerHeight) * 2 + 1);
+  v3.ray.setFromCamera(_ndc, v3.camera);
+  const hit = v3.ray.intersectObjects([v3.ground, ...v3.objs.values()], true)[0];
   if (!hit) return null;
   let o = hit.object;
   while (o && !(o.userData && o.userData.b)) o = o.parent;
@@ -634,43 +650,152 @@ function findTarget() {
   return inMap(x, y) ? { x, y } : null;
 }
 
-function on3dClick(button) {
-  const t = v3.target;
+// ---------- Bauen / Abreißen / Auswählen ----------
+function startBuild(t) {
   if (!t) return;
-  if (button === 2 || (button === 0 && demolish)) { removeAt(t.x, t.y); return; }
-  if (button !== 0) return;
-  if (tool) {
-    if (SOLID[tool] && playerInTile(t.x, t.y)) { toast('Hier stehst du gerade!', true); return; }
-    place(tool, t.x, t.y, toolDir);
-  } else {
-    selected = bAt(t.x, t.y);
-    renderInfo();
-  }
+  if (demolish) { dragging = { button: 2 }; removeAt(t.x, t.y); return; }
+  dragging = { button: 0, lastTx: t.x, lastTy: t.y, lastBelt: null };
+  const b = place(tool, t.x, t.y, toolDir);
+  if (b && tool === 'belt') dragging.lastBelt = b;
+}
+function selectAt(t) {
+  selected = t ? bAt(t.x, t.y) : null;
+  renderInfo();
+  if (selected && touchUI) document.getElementById('side').classList.add('open');
+}
+function rotateCam(dx, dy) {
+  const c = v3.cam;
+  c.yaw -= dx * 0.008;
+  c.pitch = Math.max(0.3, Math.min(1.45, c.pitch + dy * 0.006));
+}
+function zoomCam(f) { v3.cam.dist = Math.max(5, Math.min(60, v3.cam.dist * f)); }
+
+// =====================================================================
+//  Eingabe: Maus, Tastatur, Touch
+// =====================================================================
+// Maus:   Linksklick = bauen / Gebäude anklicken · ziehen = Bänder legen (mit Gebäude) bzw. Kamera drehen (ohne)
+//         Rechtsklick = abreißen · rechts ziehen = Kamera drehen · Mausrad = zoomen
+// Touch:  Joystick = laufen · tippen = bauen/anklicken · ziehen = Bänder legen bzw. Kamera drehen · 2 Finger = zoomen
+function setupInput(cv) {
+  const P = v3.pointer;
+  let md = null; // gedrückte Maustaste { button, sx, sy, moved }
+
+  cv.addEventListener('contextmenu', e => e.preventDefault());
+  cv.addEventListener('mousemove', e => {
+    P.x = e.clientX; P.y = e.clientY; P.inside = true;
+    if (!md) return;
+    const dx = e.clientX - md.lx, dy = e.clientY - md.ly;
+    md.lx = e.clientX; md.ly = e.clientY;
+    if (Math.hypot(e.clientX - md.sx, e.clientY - md.sy) > 6) md.moved = true;
+    if (md.build) {
+      const t = tileAtScreen(e.clientX, e.clientY);
+      if (t && dragging) dragTo(t.x, t.y);
+    } else if (md.moved) rotateCam(dx, dy);
+  });
+  cv.addEventListener('mouseleave', () => { P.inside = false; });
+  cv.addEventListener('mousedown', e => {
+    P.x = e.clientX; P.y = e.clientY; P.inside = true;
+    md = { button: e.button, sx: e.clientX, sy: e.clientY, lx: e.clientX, ly: e.clientY, moved: false, build: false };
+    if (e.button === 0 && (tool || demolish)) { md.build = true; startBuild(tileAtScreen(e.clientX, e.clientY)); }
+  });
+  addEventListener('mouseup', e => {
+    if (!md) return;
+    if (!md.moved && !md.build) {
+      const t = tileAtScreen(md.sx, md.sy);
+      if (md.button === 0) selectAt(t);
+      else if (md.button === 2 && t) removeAt(t.x, t.y);
+    }
+    md = null; dragging = null;
+  });
+  cv.addEventListener('wheel', e => { e.preventDefault(); zoomCam(e.deltaY > 0 ? 1.12 : 1 / 1.12); }, { passive: false });
+
+  // ---------- Tastatur ----------
+  addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT') return;
+    const k = e.key.toLowerCase();
+    v3.keys[e.code] = true;
+    const idx = BUILD_ORDER.findIndex(t => BUILDINGS[t].key === e.key);
+    const hover = () => (v3.target && bAt(v3.target.x, v3.target.y)) || selected;
+    if (idx >= 0) selectTool(tool === BUILD_ORDER[idx] ? null : BUILD_ORDER[idx]);
+    else if (k === 'r') {
+      if (tool) toolDir = (toolDir + (e.shiftKey ? 3 : 1)) % 4;
+      else { const b = hover(); if (b) b.dir = (b.dir + (e.shiftKey ? 3 : 1)) % 4; }
+    }
+    else if (k === 'x') setDemolish(!demolish);
+    else if (k === 'u') upgradeBuilding(hover());
+    else if (k === 'p') togglePause();
+    else if (k === ' ') { const p = v3.player; if (p.onGround) { p.vy = 6; p.onGround = false; } e.preventDefault(); }
+    else if (k === 'escape') { selectTool(null); setDemolish(false); selected = null; renderInfo(); closeModals(); }
+    if (e.key.startsWith('Arrow')) e.preventDefault();
+  });
+  addEventListener('keyup', e => { v3.keys[e.code] = false; });
+  addEventListener('blur', () => { v3.keys = {}; });
+
+  // ---------- Touch auf dem Bild ----------
+  let tc = null; // { id, sx, sy, lx, ly, moved, build, tile } oder { pinch, dist }
+  const tdist = ts => Math.hypot(ts[0].clientX - ts[1].clientX, ts[0].clientY - ts[1].clientY);
+  cv.addEventListener('touchstart', e => {
+    e.preventDefault();
+    enableTouchUI();
+    if (e.touches.length >= 2) { dragging = null; tc = { pinch: true, dist: tdist(e.touches) }; P.inside = false; return; }
+    const t = e.changedTouches[0];
+    P.x = t.clientX; P.y = t.clientY; P.inside = true;
+    tc = { id: t.identifier, sx: t.clientX, sy: t.clientY, lx: t.clientX, ly: t.clientY, moved: false, build: !!(tool || demolish), tile: tileAtScreen(t.clientX, t.clientY), started: false };
+  }, { passive: false });
+  cv.addEventListener('touchmove', e => {
+    e.preventDefault();
+    if (!tc) return;
+    if (tc.pinch) { if (e.touches.length >= 2) { const d = tdist(e.touches); zoomCam(tc.dist / d); tc.dist = d; } return; }
+    for (const t of e.changedTouches) {
+      if (t.identifier !== tc.id) continue;
+      P.x = t.clientX; P.y = t.clientY;
+      const dx = t.clientX - tc.lx, dy = t.clientY - tc.ly;
+      tc.lx = t.clientX; tc.ly = t.clientY;
+      if (Math.hypot(t.clientX - tc.sx, t.clientY - tc.sy) > 10) tc.moved = true;
+      if (tc.build) {
+        const tile = tileAtScreen(t.clientX, t.clientY);
+        if (!tc.started && tile && tc.tile && (tile.x !== tc.tile.x || tile.y !== tc.tile.y)) { tc.started = true; startBuild(tc.tile); }
+        if (tc.started && tile && dragging) dragTo(tile.x, tile.y);
+      } else if (tc.moved) rotateCam(dx * 1.3, dy * 1.3);
+    }
+  }, { passive: false });
+  const tend = e => {
+    e.preventDefault();
+    if (!tc) return;
+    if (tc.pinch) { if (e.touches.length === 0) tc = null; return; }
+    if (e.type === 'touchend') {
+      if (tc.build && !tc.started) startBuild(tc.tile);
+      else if (!tc.build && !tc.moved) selectAt(tc.tile);
+    }
+    tc = null; dragging = null; P.inside = false;
+  };
+  cv.addEventListener('touchend', tend, { passive: false });
+  cv.addEventListener('touchcancel', tend, { passive: false });
+
+  // ---------- Joystick zum Laufen ----------
+  const joy = document.getElementById('joy'), knob = document.getElementById('joyKnob');
+  let jid = null;
+  const setJoy = t => {
+    const r = joy.getBoundingClientRect(), R = r.width / 2;
+    let dx = t.clientX - (r.left + R), dy = t.clientY - (r.top + R);
+    const d = Math.hypot(dx, dy);
+    if (d > R) { dx *= R / d; dy *= R / d; }
+    v3.joy.x = dx / R; v3.joy.y = dy / R;
+    knob.style.transform = `translate(${dx}px, ${dy}px)`;
+  };
+  joy.addEventListener('touchstart', e => { e.preventDefault(); enableTouchUI(); const t = e.changedTouches[0]; jid = t.identifier; setJoy(t); }, { passive: false });
+  joy.addEventListener('touchmove', e => { e.preventDefault(); for (const t of e.changedTouches) if (t.identifier === jid) setJoy(t); }, { passive: false });
+  const jend = e => {
+    e.preventDefault();
+    for (const t of e.changedTouches) if (t.identifier === jid) { jid = null; v3.joy.x = v3.joy.y = 0; knob.style.transform = ''; }
+  };
+  joy.addEventListener('touchend', jend, { passive: false });
+  joy.addEventListener('touchcancel', jend, { passive: false });
 }
 
-// Tastatur im 3D-Modus. Rückgabe true = verarbeitet.
-function on3dKey(e) {
-  v3.keys[e.code] = true;
-  const k = e.key.toLowerCase();
-  if (k === ' ') { if (v3.player.onGround) { v3.player.vy = 6; v3.player.onGround = false; } e.preventDefault(); return true; }
-  if (k === 'p') { paused = !paused; $('pause').classList.toggle('hidden', !paused); return true; }
-  if (k === 'r' && !tool && v3.target) {
-    const b = bAt(v3.target.x, v3.target.y);
-    if (b) b.dir = (b.dir + (e.shiftKey ? 3 : 1)) % 4;
-    return true;
-  }
-  if (k === 'u') { if (v3.target) upgradeBuilding(bAt(v3.target.x, v3.target.y)); return true; }
-  if (k === 'q') {
-    const b = v3.target && bAt(v3.target.x, v3.target.y);
-    if (b) { selectTool(b.type); toolDir = b.dir; if (b.recipe) state.recipe = b.recipe; renderInfo(); }
-    else selectTool(null);
-    return true;
-  }
-  if (['w', 'a', 's', 'd', 'shift'].includes(k) || e.key.startsWith('Arrow')) return true;
-  return false; // Rest (1–7, R mit Werkzeug, Esc) übernimmt game.js
-}
-
-// ---------- Spielerbewegung ----------
+// =====================================================================
+//  Bewegung
+// =====================================================================
 function solidAt(px, pz) {
   const x0 = Math.floor((px - P_RADIUS) / T3), x1 = Math.floor((px + P_RADIUS) / T3);
   const z0 = Math.floor((pz - P_RADIUS) / T3), z1 = Math.floor((pz + P_RADIUS) / T3);
@@ -678,7 +803,6 @@ function solidAt(px, pz) {
     if (!inMap(x, y)) return true;
     const b = tiles[y][x].b;
     if (b && SOLID[b.type]) {
-      // Kreis gegen Box (Gebäude füllen ~92 % des Feldes)
       const m = T3 * 0.04;
       const nx = Math.max(x * T3 + m, Math.min(px, (x + 1) * T3 - m));
       const nz = Math.max(y * T3 + m, Math.min(pz, (y + 1) * T3 - m));
@@ -689,23 +813,34 @@ function solidAt(px, pz) {
 }
 
 function movePlayer(dt) {
-  const p = v3.player, K = v3.keys;
+  const p = v3.player, K = v3.keys, c = v3.cam;
+  // Kamera mit Q/E drehen
+  if (K.KeyQ) c.yaw += dt * 2;
+  if (K.KeyE) c.yaw -= dt * 2;
   let f = 0, s = 0;
   if (K.KeyW || K.ArrowUp) f += 1;
   if (K.KeyS || K.ArrowDown) f -= 1;
   if (K.KeyD || K.ArrowRight) s += 1;
   if (K.KeyA || K.ArrowLeft) s -= 1;
-  let speed = (K.ShiftLeft || K.ShiftRight) ? 9 : 5;
+  let speed = (K.ShiftLeft || K.ShiftRight) ? 10 : 6;
   if (v3.joy.x || v3.joy.y) {
     f = -v3.joy.y; s = v3.joy.x;
-    const m = Math.min(1, Math.hypot(f, s));
-    speed = m > 0.9 ? 8 : 5 * m / 0.9 + 0.01;
+    speed = Math.min(1, Math.hypot(f, s)) * 8;
   }
-  const len = Math.hypot(f, s) || 1;
-  const sin = Math.sin(p.yaw), cos = Math.cos(p.yaw);
-  let vx = (-sin * f + cos * s) / len * speed;
-  let vz = (-cos * f - sin * s) / len * speed;
-  // Förderbänder tragen den Spieler mit
+  const len = Math.hypot(f, s);
+  // Laufrichtung relativ zur Kamera
+  const fx = -Math.sin(c.yaw), fz = -Math.cos(c.yaw), rx = Math.cos(c.yaw), rz = -Math.sin(c.yaw);
+  let vx = 0, vz = 0;
+  if (len > 0.01) {
+    vx = (fx * f + rx * s) / Math.max(1, len) * speed;
+    vz = (fz * f + rz * s) / Math.max(1, len) * speed;
+    // Figur dreht sich weich in Laufrichtung
+    const want = Math.atan2(-vz, vx);
+    let d = want - p.face; d = Math.atan2(Math.sin(d), Math.cos(d));
+    p.face += d * Math.min(1, dt * 12);
+    p.walk += dt * Math.hypot(vx, vz) * 1.6;
+  } else p.walk *= 0.85;
+  // Förderbänder tragen die Figur mit
   if (p.onGround) {
     const b = bAt(Math.floor(p.x / T3), Math.floor(p.z / T3));
     if (b && b.type === 'belt') { vx += DX[b.dir] * beltSpeed() * T3; vz += DY[b.dir] * beltSpeed() * T3; }
@@ -714,7 +849,6 @@ function movePlayer(dt) {
   if (!solidAt(nx, p.z)) p.x = nx;
   const nz = p.z + vz * dt;
   if (!solidAt(p.x, nz)) p.z = nz;
-  // Schwerkraft
   p.vy -= 18 * dt;
   p.y += p.vy * dt;
   const b = bAt(Math.floor(p.x / T3), Math.floor(p.z / T3));
@@ -722,50 +856,36 @@ function movePlayer(dt) {
   if (p.y <= floor) { p.y = floor; p.vy = 0; p.onGround = true; }
 }
 
-// ---------- Ein/Aus ----------
-function set3d(on) {
-  if (on && !init3d()) return;
-  mode3d = on;
-  document.getElementById('game').classList.toggle('hidden', on);
-  document.getElementById('game3d').classList.toggle('hidden', !on);
-  document.getElementById('crosshair').classList.toggle('hidden', !on);
-  if (touchUI) v3.locked = on;
-  document.getElementById('touch3d').classList.toggle('hidden', !on || !touchUI);
-  document.getElementById('lockHint').classList.toggle('hidden', !on || v3.locked);
-  document.getElementById('btn3d').textContent = on ? '2D' : '3D';
-  if (on) {
-    if (v3.groundTiles !== tiles) buildGround();
-    // Spieler in die Bildmitte der 2D-Ansicht setzen
-    const cxw = (cam.x + innerWidth / cam.zoom / 2) / TILE, cyw = (cam.y + innerHeight / cam.zoom / 2) / TILE;
-    const p = v3.player;
-    p.x = Math.max(1, Math.min(MAP_W - 1, cxw)) * T3; p.z = Math.max(1, Math.min(MAP_H - 1, cyw)) * T3;
-    p.y = 0; p.vy = 0;
-    // freien Platz suchen
-    for (let r = 0; r < 20 && solidAt(p.x, p.z); r++) p.z += T3;
-    resize3d();
-  } else {
-    if (document.pointerLockElement) document.exitPointerLock();
-    // 2D-Kamera auf Spielerposition setzen
-    cam.x = v3.player.x / T3 * TILE - innerWidth / cam.zoom / 2;
-    cam.y = v3.player.z / T3 * TILE - innerHeight / cam.zoom / 2;
-    clampCam();
-  }
-}
-
 function resize3d() {
-  if (!v3.ready) return;
+  if (!v3.ready && !v3.renderer) return;
   v3.renderer.setSize(innerWidth, innerHeight, false);
   v3.camera.aspect = innerWidth / innerHeight;
   v3.camera.updateProjectionMatrix();
 }
 addEventListener('resize', resize3d);
 
+// =====================================================================
+//  Bild zeichnen
+// =====================================================================
 function render3d(dt) {
   if (v3.groundTiles !== tiles) buildGround();
-  if (v3.locked) movePlayer(dt);
-  const p = v3.player, cam3 = v3.camera;
-  cam3.position.set(p.x, p.y + EYE, p.z);
-  cam3.rotation.set(p.pitch, p.yaw, 0);
+  movePlayer(dt);
+  const p = v3.player, c = v3.cam, cam3 = v3.camera;
+  // Figur
+  const A = v3.avatar;
+  A.position.set(p.x, p.y, p.z);
+  A.rotation.y = p.face;
+  const sw = Math.sin(p.walk) * Math.min(1, Math.abs(Math.sin(p.walk)) + 0.3) * 0.7;
+  A.userData.legL.rotation.z = sw; A.userData.legR.rotation.z = -sw;
+  A.userData.armL.rotation.z = -sw * 0.8; A.userData.armR.rotation.z = sw * 0.8;
+  // Kamera von schräg oben hinter der Figur
+  const tx = p.x, ty = p.y + 1.2, tz = p.z;
+  cam3.position.set(
+    tx + Math.sin(c.yaw) * Math.cos(c.pitch) * c.dist,
+    ty + Math.sin(c.pitch) * c.dist,
+    tz + Math.cos(c.yaw) * Math.cos(c.pitch) * c.dist);
+  cam3.lookAt(tx, ty, tz);
+  v3.scene.fog.near = c.dist + 25; v3.scene.fog.far = c.dist + 110;
   v3.sun.position.set(p.x + 20, 40, p.z + 10);
   v3.sun.target.position.set(p.x, 0, p.z);
 
@@ -773,83 +893,10 @@ function render3d(dt) {
   syncBuildings(dt);
   updateOreVisibility();
   syncItems();
-  v3.target = v3.locked ? findTarget() : null;
+  v3.target = v3.pointer.inside ? tileAtScreen(v3.pointer.x, v3.pointer.y) : null;
   updateGhost();
+  // ausgewähltes Gebäude markieren
+  v3.selMark.visible = !!selected;
+  if (selected) { const [sx, sz] = tileCenter(selected.x, selected.y); v3.selMark.position.x = sx; v3.selMark.position.z = sz; }
   v3.renderer.render(v3.scene, cam3);
-}
-
-// ---------- Touch-Steuerung (3D) ----------
-// Linker Joystick = laufen, auf dem Bild wischen = umsehen, kurz tippen = bauen/auswählen am Fadenkreuz.
-function setupTouch3d(cv) {
-  cv.addEventListener('touchstart', e => {
-    e.preventDefault();
-    enableTouchUI();
-    if (mode3d && !v3.locked) { v3.locked = true; document.getElementById('lockHint').classList.add('hidden'); document.getElementById('touch3d').classList.remove('hidden'); }
-    if (v3.look) return;
-    const t = e.changedTouches[0];
-    v3.look = { id: t.identifier, x: t.clientX, y: t.clientY, sx: t.clientX, sy: t.clientY, time: performance.now(), moved: false };
-  }, { passive: false });
-  cv.addEventListener('touchmove', e => {
-    e.preventDefault();
-    const L = v3.look;
-    if (!L) return;
-    for (const t of e.changedTouches) {
-      if (t.identifier !== L.id) continue;
-      const p = v3.player;
-      p.yaw -= (t.clientX - L.x) * 0.006;
-      p.pitch = Math.max(-1.5, Math.min(1.5, p.pitch - (t.clientY - L.y) * 0.006));
-      L.x = t.clientX; L.y = t.clientY;
-      if (Math.hypot(t.clientX - L.sx, t.clientY - L.sy) > 12) L.moved = true;
-    }
-  }, { passive: false });
-  const end = e => {
-    e.preventDefault();
-    const L = v3.look;
-    if (!L) return;
-    for (const t of e.changedTouches) {
-      if (t.identifier !== L.id) continue;
-      if (e.type === 'touchend' && !L.moved && performance.now() - L.time < 350) {
-        v3.target = findTarget();
-        on3dClick(0);
-        if (!tool && !demolish && selected) document.getElementById('side').classList.add('open');
-      }
-      v3.look = null;
-    }
-  };
-  cv.addEventListener('touchend', end, { passive: false });
-  cv.addEventListener('touchcancel', end, { passive: false });
-
-  // Joystick
-  const joy = document.getElementById('joy'), knob = document.getElementById('joyKnob');
-  let jid = null;
-  const setJoy = t => {
-    const r = joy.getBoundingClientRect();
-    const R = r.width / 2;
-    let dx = t.clientX - (r.left + R), dy = t.clientY - (r.top + R);
-    const d = Math.hypot(dx, dy);
-    if (d > R) { dx *= R / d; dy *= R / d; }
-    v3.joy.x = dx / R; v3.joy.y = dy / R;
-    knob.style.transform = `translate(${dx}px, ${dy}px)`;
-  };
-  joy.addEventListener('touchstart', e => {
-    e.preventDefault();
-    const t = e.changedTouches[0]; jid = t.identifier; setJoy(t);
-  }, { passive: false });
-  joy.addEventListener('touchmove', e => {
-    e.preventDefault();
-    for (const t of e.changedTouches) if (t.identifier === jid) setJoy(t);
-  }, { passive: false });
-  const jend = e => {
-    e.preventDefault();
-    for (const t of e.changedTouches) if (t.identifier === jid) {
-      jid = null; v3.joy.x = v3.joy.y = 0; knob.style.transform = '';
-    }
-  };
-  joy.addEventListener('touchend', jend, { passive: false });
-  joy.addEventListener('touchcancel', jend, { passive: false });
-
-  const jump = document.getElementById('btnJump');
-  const doJump = e => { e.preventDefault(); const p = v3.player; if (p.onGround) { p.vy = 6; p.onGround = false; } };
-  jump.addEventListener('touchstart', doJump, { passive: false });
-  jump.addEventListener('click', doJump);
 }

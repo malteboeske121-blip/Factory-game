@@ -10,10 +10,7 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<canvas id="game"></canvas>
-<canvas id="game3d" class="hidden"></canvas>
-<div id="crosshair" class="hidden"></div>
-<div id="lockHint" class="hidden">Klicken, um loszulaufen<br><small>WASD laufen · Maus umsehen · Leertaste springen · Shift rennen<br>Linksklick bauen · Rechtsklick abreißen · Mausrad/1–7 Gebäude · R drehen · U aufrüsten · Esc Maus freigeben</small></div>
+<canvas id="game3d"></canvas>
 
 <div id="topbar">
   <div class="stat"><span class="label">Geld</span><span id="money">0 €</span></div>
@@ -21,7 +18,6 @@
   <div class="spacer"></div>
   <button id="btnMenu" class="mobile-only" title="Aufträge & Info">☰</button>
   <button id="btnPause" title="Pause">⏸</button>
-  <button id="btn3d" title="Zwischen 2D- und 3D-Ansicht wechseln (V)">3D</button>
   <button id="btnUpgrades"><span class="long">Upgrades</span><span class="short">⬆</span></button>
   <button id="btnHelp"><span class="long">Hilfe</span><span class="short">?</span></button>
   <button id="btnNew"><span class="long">Neues Spiel</span><span class="short">↺</span></button>
@@ -37,9 +33,8 @@
 
 <div id="hotbar"></div>
 
-<div id="touch3d" class="hidden">
+<div id="touch3d">
   <div id="joy"><div id="joyKnob"></div></div>
-  <button id="btnJump">Springen</button>
 </div>
 
 <div id="upgrades" class="modal hidden">
@@ -56,7 +51,7 @@
     <p>Baue eine automatische Fabrik: Rohstoffe abbauen, verarbeiten und verkaufen!</p>
     <ul>
       <li><b>Bohrer</b> nur auf Erzfeldern platzieren. Sie geben Erz in Pfeilrichtung aus.</li>
-      <li><b>Förderbänder</b> transportieren Gegenstände. Mit gedrückter Maustaste ziehen, um Bänder zu verlegen.</li>
+      <li><b>Förderbänder</b> transportieren Gegenstände. Zum Verlegen einfach über die Felder ziehen.</li>
       <li><b>Schmelzofen</b> macht aus Erz Platten. Braucht <b>Kohle</b> als Brennstoff (1 Kohle = 4 Schmelzvorgänge).</li>
       <li><b>Montierer</b> bauen Bauteile. Klicke einen Montierer an, um das Rezept zu wählen.</li>
       <li><b>Verteiler</b> verteilt Gegenstände abwechselnd nach vorne, links und rechts.</li>
@@ -64,24 +59,23 @@
       <li><b>Aufrüsten:</b> Klicke ein Gebäude an. Bohrer, Öfen, Montierer und Verkaufsstellen haben 4 Stufen: Alt → Repariert → Modern → Hightech. Jede Stufe arbeitet schneller (Verkauf: bessere Preise) und sieht neuer aus.</li>
     </ul>
     <div class="touch-only">
-    <h3>Am Handy / Tablet</h3>
+    <h3>Steuerung</h3>
     <ul>
-      <li>Gebäude unten wählen und aufs Feld <b>tippen</b>. Förderbänder mit dem Finger <b>ziehen</b>.</li>
-      <li><b>↻ Drehen</b> und <b>✖ Abreißen</b> findest du ganz rechts in der Leiste (wischen).</li>
-      <li>Ohne gewähltes Gebäude: <b>ein Finger</b> verschiebt die Karte, <b>Antippen</b> zeigt Infos, <b>zwei Finger</b> zoomen.</li>
-      <li><b>☰</b> öffnet Aufträge und Info, <b>3D</b> lässt dich durch die Fabrik laufen: Joystick links, Bild wischen zum Umsehen, kurz tippen zum Bauen.</li>
+      <li><b>Laufen:</b> Joystick unten links.</li>
+      <li><b>Bauen:</b> Gebäude unten wählen und aufs Feld <b>tippen</b>. Förderbänder mit dem Finger <b>ziehen</b>.</li>
+      <li><b>Infos & Aufrüsten:</b> ohne gewähltes Gebäude ein Gebäude <b>antippen</b>.</li>
+      <li><b>Kamera:</b> mit einem Finger <b>wischen</b> zum Drehen, mit <b>zwei Fingern</b> zoomen.</li>
+      <li><b>↻ Drehen</b> und <b>✖ Abreißen</b> findest du ganz rechts in der Leiste. <b>☰</b> zeigt Aufträge und Info.</li>
     </ul>
     </div>
     <div class="desk-only">
     <h3>Steuerung</h3>
     <ul>
-      <li><b>1–7</b>: Gebäude wählen · <b>Esc</b>: Auswahl aufheben</li>
-      <li><b>R</b>: drehen · <b>Linksklick</b>: bauen / anklicken</li>
-      <li><b>Rechtsklick</b>: abreißen (75 % Rückerstattung)</li>
-      <li><b>WASD / Pfeiltasten</b> oder <b>mittlere Maustaste</b>: Kamera bewegen · <b>Mausrad</b>: Zoom</li>
-      <li><b>X</b>: Abriss-Werkzeug · <b>U</b>: Gebäude unter der Maus aufrüsten</li>
-      <li><b>Leertaste</b>: Pause (im 3D-Modus: springen, Pause mit <b>P</b>)</li>
-      <li><b>V</b> oder Knopf <b>3D</b>: durch die Fabrik laufen (WASD + Maus)</li>
+      <li><b>WASD</b>: laufen · <b>Shift</b>: rennen · <b>Leertaste</b>: springen</li>
+      <li><b>1–7</b>: Gebäude wählen, dann <b>Linksklick</b> aufs Feld (ziehen für Bänder) · <b>R</b>: drehen</li>
+      <li><b>Linksklick</b> auf ein Gebäude: Infos & Aufrüsten (<b>U</b>) · <b>Rechtsklick</b>: abreißen</li>
+      <li><b>Maus ziehen</b> (auf freier Fläche oder mit rechter Taste): Kamera drehen · <b>Mausrad</b>: zoomen · <b>Q/E</b>: Kamera drehen</li>
+      <li><b>X</b>: Abriss-Werkzeug · <b>P</b>: Pause · <b>Esc</b>: Auswahl aufheben</li>
     </ul>
     </div>
     <button class="close">Los geht's!</button>

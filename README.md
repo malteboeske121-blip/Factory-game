@@ -23,32 +23,26 @@ Bohrer, Schmelzöfen, Montierer und Verkaufsstellen haben **4 Stufen**. Gebäude
 
 Alle 3D-Texturen werden prozedural im Browser erzeugt (`textures3d.js`).
 
-## 3D-Modus
-Mit **V** oder dem Knopf **3D-Ansicht** läufst du in der Ego-Perspektive durch deine Fabrik.
-Ins Bild klicken, um die Maus zu fangen; **Esc** gibt sie wieder frei.
+## Steuerung
+Du steuerst einen Bauarbeiter, die Kamera schaut ihm von schräg oben zu. Gebaut wird direkt per Klick bzw. Tippen aufs Feld.
+
+**PC**
 
 | Taste | Aktion |
 |---|---|
-| WASD | laufen (Shift = rennen) |
-| Maus | umsehen |
-| Leertaste | springen |
-| Linksklick / Rechtsklick | bauen / abreißen (Fadenkreuz-Feld) |
-| Mausrad oder 1–7 | Gebäude wählen |
-| R / Q | drehen / Gebäude kopieren |
+| WASD / Pfeiltasten | laufen (Shift = rennen, Leertaste = springen) |
+| 1–7 | Gebäude wählen |
+| Linksklick (ziehen) | bauen, Förderbänder verlegen |
+| Linksklick auf Gebäude | Infos & Aufrüsten |
+| Rechtsklick | abreißen |
+| Maus ziehen / Q, E | Kamera drehen |
+| Mausrad | zoomen |
+| R / U / X | drehen / aufrüsten / Abriss-Werkzeug |
 | P | Pause |
 
-Förderbänder tragen dich mit! 3D nutzt [three.js](https://threejs.org) (liegt in `lib/`, MIT-Lizenz).
+**Handy/Tablet:** Joystick zum Laufen, Gebäude wählen und aufs Feld tippen (für Bänder ziehen),
+Gebäude antippen für Infos, mit einem Finger wischen zum Drehen der Kamera, zwei Finger zum Zoomen.
 
-## Steuerung (2D)
-| Taste | Aktion |
-|---|---|
-| 1–7 | Gebäude wählen |
-| R / Shift+R | drehen |
-| Linksklick (ziehen) | bauen, Förderbänder verlegen |
-| Rechtsklick (ziehen) | abreißen |
-| Q | Gebäude unter der Maus kopieren |
-| WASD / Pfeiltasten, Maus ziehen | Kamera bewegen |
-| Mausrad | Zoom |
-| Leertaste | Pause |
+Förderbänder tragen dich mit! 3D nutzt [three.js](https://threejs.org) (liegt in `lib/`, MIT-Lizenz).
 
 Der Spielstand wird automatisch im Browser gespeichert.

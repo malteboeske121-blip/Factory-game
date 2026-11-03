@@ -175,6 +175,7 @@ function canPlace(type, x, y) {
 function place(type, x, y, dir, free = false) {
   if (!canPlace(type, x, y)) return null;
   const cost = BUILDINGS[type].cost;
+  if (!free && typeof blockedByPlayer === 'function' && blockedByPlayer(type, x, y)) { toast('Hier stehst du gerade!', true); return null; }
   if (!free) {
     if (state.money < cost) { toast('Nicht genug Geld!', true); return null; }
     state.money -= cost;
@@ -350,94 +351,12 @@ function checkMissions() {
 // =====================================================================
 //  Darstellung
 // =====================================================================
-const canvas = document.getElementById('game');
-const ctx = canvas.getContext('2d');
-const cam = { x: 0, y: 0, zoom: 1.25 };
-let mouse = { sx: 0, sy: 0, tx: 0, ty: 0, inside: false };
 let tool = null;     // ausgewählter Gebäudetyp
 let toolDir = 0;
 let selected = null; // angeklicktes Gebäude
 let paused = false;
-let mode3d = false; // 3D-Modus (siehe three3d.js)
 let demolish = false; // Abriss-Werkzeug aktiv
 let touchUI = matchMedia('(pointer: coarse)').matches; // Touch-Bedienung (Handy/Tablet)
-
-function resize() {
-  canvas.width = innerWidth * devicePixelRatio;
-  canvas.height = innerHeight * devicePixelRatio;
-  canvas.style.width = innerWidth + 'px';
-  canvas.style.height = innerHeight + 'px';
-}
-addEventListener('resize', resize);
-
-const ORE_COLORS = { iron_ore: '#7d6f66', copper_ore: '#b5622f', coal: '#262626' };
-
-// ---------- Erz-Kacheln für die 2D-Karte (einmal vorgerendert, mehrere Varianten) ----------
-const ORE_VARIANTS = 4;
-const ORE_LOOK = {
-  //           Erde        Gestein (hell, dunkel)    Erz (hell, dunkel)       Glanz
-  iron_ore:   { earth: '#5a4a3e', rock: ['#8d8781', '#5c5752'], ore: ['#b0603a', '#7a3520'], glint: '#e8ecf2' },
-  copper_ore: { earth: '#55473a', rock: ['#8a837a', '#5a544c'], ore: ['#ffc24a', '#c8741e'], glint: '#fff6c8', patina: '#4fae8a' },
-  coal:       { earth: '#33302c', rock: ['#4a4744', '#2a2826'], ore: ['#26262a', '#0a0a0c'], glint: '#9aa6c0' },
-};
-const oreSprites = {};
-function oreSprite(ore, v) {
-  const key = ore + v;
-  if (oreSprites[key]) return oreSprites[key];
-  const S = 64, c = document.createElement('canvas'); c.width = c.height = S;
-  const g = c.getContext('2d'), L = ORE_LOOK[ore], r = rng(ore.length * 101 + v * 977);
-  // weicher Erdfleck
-  const grd = g.createRadialGradient(S / 2, S / 2, S * 0.15, S / 2, S / 2, S * 0.62);
-  grd.addColorStop(0, L.earth); grd.addColorStop(0.75, L.earth + 'cc'); grd.addColorStop(1, L.earth + '00');
-  g.fillStyle = grd; g.fillRect(0, 0, S, S);
-  for (let i = 0; i < 30; i++) { const k = 80 + r() * 70; g.fillStyle = `rgba(${k},${k - 8},${k - 14},.5)`; g.fillRect(r() * S, r() * S, 1.5, 1.5); }
-  // Brocken (Schatten, Körper mit Licht von oben links, Erzadern, Glanz)
-  const n = 3 + Math.floor(r() * 2);
-  for (let i = 0; i < n; i++) {
-    const cx = 12 + r() * 40, cy = 12 + r() * 40, rad = 7 + r() * 7;
-    const pts = [];
-    for (let k = 0; k < 8; k++) { const a = k / 8 * Math.PI * 2 + r() * 0.3; const rr = rad * (0.7 + r() * 0.4); pts.push([cx + Math.cos(a) * rr, cy + Math.sin(a) * rr * 0.85]); }
-    const path = (dx = 0, dy = 0) => { g.beginPath(); pts.forEach(([px, py], j) => j ? g.lineTo(px + dx, py + dy) : g.moveTo(px + dx, py + dy)); g.closePath(); };
-    g.fillStyle = 'rgba(0,0,0,.4)'; path(2, 3); g.fill();
-    const body = g.createLinearGradient(cx - rad, cy - rad, cx + rad, cy + rad);
-    const isOre = ore === 'coal' || i % 2 === 0;
-    body.addColorStop(0, isOre && ore === 'coal' ? L.ore[0] : L.rock[0]); body.addColorStop(1, isOre && ore === 'coal' ? L.ore[1] : L.rock[1]);
-    g.fillStyle = body; path(); g.fill();
-    g.strokeStyle = 'rgba(0,0,0,.5)'; g.lineWidth = 1; g.stroke();
-    // Facettenkante
-    g.strokeStyle = 'rgba(255,255,255,.18)'; g.beginPath(); g.moveTo(pts[4][0], pts[4][1]); g.lineTo(cx, cy - 1); g.lineTo(pts[7][0], pts[7][1]); g.stroke();
-    g.save(); path(); g.clip();
-    if (ore !== 'coal') {
-      // Erzadern + Nuggets
-      g.strokeStyle = L.ore[1]; g.lineWidth = 3; g.beginPath(); g.moveTo(cx - rad, cy + r() * 6 - 3); g.quadraticCurveTo(cx, cy - 6 + r() * 12, cx + rad, cy + r() * 6 - 3); g.stroke();
-      g.strokeStyle = L.ore[0]; g.lineWidth = 1.6; g.stroke();
-      for (let k = 0; k < 3; k++) {
-        const nx = cx + (r() - 0.5) * rad, ny = cy + (r() - 0.5) * rad, nr = 1.6 + r() * 2.2;
-        const ng = g.createRadialGradient(nx - nr * 0.3, ny - nr * 0.3, 0, nx, ny, nr);
-        ng.addColorStop(0, L.ore[0]); ng.addColorStop(1, L.ore[1]);
-        g.fillStyle = ng; g.beginPath(); g.arc(nx, ny, nr, 0, 7); g.fill();
-      }
-      if (L.patina) { g.fillStyle = L.patina + '99'; g.beginPath(); g.arc(cx + rad * 0.3, cy + rad * 0.4, 2, 0, 7); g.fill(); }
-    } else {
-      // Kohle: glänzende schwarze Bruchflächen
-      for (let k = 0; k < 3; k++) {
-        const a = r() * Math.PI * 2, fx = cx + Math.cos(a) * rad * 0.4, fy = cy + Math.sin(a) * rad * 0.4;
-        g.fillStyle = 'rgba(120,130,160,.22)'; g.beginPath(); g.moveTo(fx, fy - 3); g.lineTo(fx + 4, fy); g.lineTo(fx, fy + 2); g.lineTo(fx - 3, fy); g.fill();
-      }
-    }
-    g.restore();
-    // Glanzpunkte
-    g.fillStyle = L.glint;
-    for (let k = 0; k < 2; k++) { const gx = cx - rad * 0.35 + r() * rad * 0.5, gy = cy - rad * 0.4 + r() * rad * 0.3; g.fillRect(gx, gy, 1.6, 1.6); }
-    g.fillStyle = 'rgba(255,255,255,.35)'; g.beginPath(); g.arc(cx - rad * 0.35, cy - rad * 0.35, rad * 0.18, 0, 7); g.fill();
-  }
-  // lose Erzkörner
-  for (let i = 0; i < 8; i++) {
-    const px = r() * S, py = r() * S;
-    g.fillStyle = L.ore[i % 2]; g.beginPath(); g.arc(px, py, 1 + r() * 1.5, 0, 7); g.fill();
-  }
-  return (oreSprites[key] = c);
-}
 
 function drawItem(c, item, x, y, s) {
   const it = ITEMS[item];
@@ -579,68 +498,6 @@ function drawBuilding(c, b, px, py, ghost) {
   c.restore();
 }
 
-function render() {
-  const dpr = devicePixelRatio;
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.fillStyle = '#14171b';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.setTransform(dpr * cam.zoom, 0, 0, dpr * cam.zoom, -cam.x * dpr * cam.zoom, -cam.y * dpr * cam.zoom);
-
-  const vw = innerWidth / cam.zoom, vh = innerHeight / cam.zoom;
-  const x0 = Math.max(0, Math.floor(cam.x / TILE)), y0 = Math.max(0, Math.floor(cam.y / TILE));
-  const x1 = Math.min(MAP_W - 1, Math.floor((cam.x + vw) / TILE)), y1 = Math.min(MAP_H - 1, Math.floor((cam.y + vh) / TILE));
-
-  // Boden
-  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
-    const t = tiles[y][x];
-    const g = 46 + Math.floor(t.v * 8);
-    ctx.fillStyle = `rgb(${g - 6},${g + 10},${g - 10})`;
-    ctx.fillRect(x * TILE, y * TILE, TILE, TILE);
-    if (t.ore) ctx.drawImage(oreSprite(t.ore, (x * 7 + y * 13) % ORE_VARIANTS), x * TILE, y * TILE, TILE, TILE);
-  }
-  // Gitter
-  ctx.strokeStyle = 'rgba(0,0,0,.12)'; ctx.lineWidth = 1;
-  ctx.beginPath();
-  for (let x = x0; x <= x1 + 1; x++) { ctx.moveTo(x * TILE, y0 * TILE); ctx.lineTo(x * TILE, (y1 + 1) * TILE); }
-  for (let y = y0; y <= y1 + 1; y++) { ctx.moveTo(x0 * TILE, y * TILE); ctx.lineTo((x1 + 1) * TILE, y * TILE); }
-  ctx.stroke();
-
-  // Gebäude
-  for (const b of buildings) {
-    if (b.x < x0 - 1 || b.x > x1 + 1 || b.y < y0 - 1 || b.y > y1 + 1) continue;
-    drawBuilding(ctx, b, b.x * TILE, b.y * TILE, false);
-  }
-  // Gegenstände auf Bändern / Verteilern
-  for (const b of buildings) {
-    if (!b.item) continue;
-    const cx = b.x * TILE + TILE / 2, cy = b.y * TILE + TILE / 2;
-    const k = b.type === 'belt' ? (b.p - 0.5) * TILE : 0;
-    drawItem(ctx, b.item, cx + DX[b.dir] * k, cy + DY[b.dir] * k, 13);
-  }
-  // Auswahl
-  if (selected) {
-    ctx.strokeStyle = '#ffd75e'; ctx.lineWidth = 2;
-    ctx.strokeRect(selected.x * TILE + 1, selected.y * TILE + 1, TILE - 2, TILE - 2);
-  }
-  // Vorschau
-  if (mouse.inside && inMap(mouse.tx, mouse.ty)) {
-    const px = mouse.tx * TILE, py = mouse.ty * TILE;
-    if (demolish) {
-      ctx.strokeStyle = '#e05050'; ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.moveTo(px + 8, py + 8); ctx.lineTo(px + TILE - 8, py + TILE - 8);
-      ctx.moveTo(px + TILE - 8, py + 8); ctx.lineTo(px + 8, py + TILE - 8); ctx.stroke();
-    } else if (tool) {
-      const ok = canPlace(tool, mouse.tx, mouse.ty) && state.money >= BUILDINGS[tool].cost;
-      drawBuilding(ctx, { type: tool, dir: toolDir, recipe: state.recipe, anim: 0 }, px, py, true);
-      ctx.strokeStyle = ok ? '#5cc85c' : '#e05050';
-    } else {
-      ctx.strokeStyle = 'rgba(255,255,255,.5)';
-    }
-    ctx.lineWidth = 2;
-    ctx.strokeRect(px + 1, py + 1, TILE - 2, TILE - 2);
-  }
-}
-
 // =====================================================================
 //  UI
 // =====================================================================
@@ -694,7 +551,7 @@ function setDemolish(on) {
 function rotateAction() {
   if (tool) toolDir = (toolDir + 1) % 4;
   else if (selected) selected.dir = (selected.dir + 1) % 4;
-  else toast(touchUI ? 'Wähle zuerst ein Gebäude oder tippe eines an' : 'Wähle zuerst ein Gebäude (1–7)', true);
+  else toast(touchUI ? 'Wähle zuerst ein Gebäude oder tippe eines an' : 'Wähle zuerst ein Gebäude (1–7) oder klicke eines an', true);
 }
 
 function updateHotbar() {
@@ -710,7 +567,7 @@ function selectTool(type) {
   demolish = false;
   if (type) { selected = null; renderInfo(); }
   updateHotbar();
-  canvas.style.cursor = type ? 'crosshair' : 'default';
+  $('game3d').style.cursor = type || demolish ? 'crosshair' : 'default';
 }
 
 function renderMissions() {
@@ -744,8 +601,8 @@ function renderInfo(force = true) {
       el.innerHTML = `<b>${d.name}</b> (${d.cost} €)<br>${d.desc}<br><small>${touchUI ? '↻ Drehen unten in der Leiste' : 'R = drehen'}</small>`;
       if (tool === 'assembler') el.innerHTML += recipeButtons(state.recipe);
     } else if (demolish) el.innerHTML = '<b>Abreißen</b><br>Gebäude antippen oder darüber ziehen. Du bekommst 75 % der Kosten zurück.';
-    else el.innerHTML = touchUI ? 'Wähle unten ein Gebäude oder tippe ein platziertes Gebäude an. Zwei Finger: zoomen und verschieben.'
-      : 'Wähle ein Gebäude unten aus oder klicke auf ein platziertes Gebäude.';
+    else el.innerHTML = touchUI ? 'Wähle unten ein Gebäude und tippe auf ein Feld. Tippe ein Gebäude an für Infos. Wischen dreht die Kamera, zwei Finger zoomen.'
+      : 'Wähle unten ein Gebäude (1–7) und klicke auf ein Feld. Klicke ein Gebäude an für Infos.';
     bindRecipeButtons();
     return;
   }
@@ -835,51 +692,7 @@ function updateTopbar() {
 // =====================================================================
 //  Eingabe
 // =====================================================================
-const keys = {};
-let dragging = null; // { button, lastTx, lastTy, lastBelt }
-let panning = null;
-
-function screenToTile(sx, sy) {
-  const wx = sx / cam.zoom + cam.x, wy = sy / cam.zoom + cam.y;
-  return [Math.floor(wx / TILE), Math.floor(wy / TILE)];
-}
-
-canvas.addEventListener('contextmenu', e => e.preventDefault());
-canvas.addEventListener('mousemove', e => {
-  mouse.sx = e.clientX; mouse.sy = e.clientY; mouse.inside = true;
-  [mouse.tx, mouse.ty] = screenToTile(e.clientX, e.clientY);
-  if (panning) {
-    cam.x = panning.cx - (e.clientX - panning.sx) / cam.zoom;
-    cam.y = panning.cy - (e.clientY - panning.sy) / cam.zoom;
-    clampCam();
-    return;
-  }
-  if (dragging) dragTo(mouse.tx, mouse.ty);
-});
-canvas.addEventListener('mouseleave', () => { mouse.inside = false; });
-canvas.addEventListener('mousedown', e => {
-  const [tx, ty] = screenToTile(e.clientX, e.clientY);
-  if (e.button === 1 || (e.button === 0 && !tool && !bAt(tx, ty) && e.shiftKey)) {
-    panning = { sx: e.clientX, sy: e.clientY, cx: cam.x, cy: cam.y }; e.preventDefault(); return;
-  }
-  if (e.button === 2 || (e.button === 0 && demolish)) {
-    dragging = { button: 2 };
-    removeAt(tx, ty);
-    return;
-  }
-  if (e.button === 0) {
-    if (tool) {
-      dragging = { button: 0, lastTx: tx, lastTy: ty, lastBelt: null };
-      const b = place(tool, tx, ty, toolDir);
-      if (b && tool === 'belt') dragging.lastBelt = b;
-    } else {
-      selected = bAt(tx, ty);
-      renderInfo();
-      if (!selected) panning = { sx: e.clientX, sy: e.clientY, cx: cam.x, cy: cam.y };
-    }
-  }
-});
-addEventListener('mouseup', () => { dragging = null; panning = null; });
+let dragging = null; // Bau-Ziehen: { button, lastTx, lastTy, lastBelt }
 
 function dragTo(tx, ty) {
   if (dragging.button === 2) { removeAt(tx, ty); return; }
@@ -902,127 +715,12 @@ function dragTo(tx, ty) {
   }
 }
 
-canvas.addEventListener('wheel', e => {
-  e.preventDefault();
-  const wx = e.clientX / cam.zoom + cam.x, wy = e.clientY / cam.zoom + cam.y;
-  cam.zoom = Math.min(3, Math.max(0.4, cam.zoom * (e.deltaY < 0 ? 1.12 : 1 / 1.12)));
-  cam.x = wx - e.clientX / cam.zoom; cam.y = wy - e.clientY / cam.zoom;
-  clampCam();
-}, { passive: false });
-
-function clampCam() {
-  const vw = innerWidth / cam.zoom, vh = innerHeight / cam.zoom;
-  cam.x = Math.max(-vw / 2, Math.min(MAP_W * TILE - vw / 2, cam.x));
-  cam.y = Math.max(-vh / 2, Math.min(MAP_H * TILE - vh / 2, cam.y));
-}
-
-addEventListener('keydown', e => {
-  if (e.target.tagName === 'INPUT') return;
-  const k = e.key.toLowerCase();
-  if (k === 'v') { set3d(!mode3d); return; }
-  if (mode3d && on3dKey(e)) return;
-  keys[k] = true;
-  const idx = BUILD_ORDER.findIndex(t => BUILDINGS[t].key === e.key);
-  if (idx >= 0) selectTool(tool === BUILD_ORDER[idx] ? null : BUILD_ORDER[idx]);
-  else if (k === 'r') {
-    if (tool) toolDir = (toolDir + (e.shiftKey ? 3 : 1)) % 4;
-    else if (selected && !mouse.inside) selected.dir = (selected.dir + 1) % 4;
-    else if (mouse.inside) { const b = bAt(mouse.tx, mouse.ty); if (b) b.dir = (b.dir + (e.shiftKey ? 3 : 1)) % 4; }
-  } else if (k === 'x') setDemolish(!demolish);
-  else if (k === 'u') upgradeBuilding((mouse.inside && bAt(mouse.tx, mouse.ty)) || selected);
-  else if (k === 'escape') { selectTool(null); selected = null; renderInfo(); closeModals(); }
-  else if (k === ' ') { togglePause(); e.preventDefault(); }
-  else if (k === 'q') {
-    const b = mouse.inside && bAt(mouse.tx, mouse.ty);
-    if (b) { selectTool(b.type); toolDir = b.dir; if (b.recipe) state.recipe = b.recipe; renderInfo(); }
-  }
-});
-addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
-
-// ---------- Touch-Steuerung (2D) ----------
-// 1 Finger: mit Gebäude = bauen/Bänder ziehen, Abriss = abreißen, sonst Karte verschieben / antippen.
-// 2 Finger: zoomen und verschieben.
-let touch2d = null;
 function enableTouchUI() {
   if (touchUI && document.body.classList.contains('touch')) return;
   touchUI = true;
   document.body.classList.add('touch');
   renderInfo();
 }
-const tpos = t => [t.clientX, t.clientY];
-canvas.addEventListener('touchstart', e => {
-  e.preventDefault();
-  enableTouchUI();
-  const ts = e.touches;
-  if (ts.length >= 2) {
-    // Bau-Geste abbrechen, Zoom starten
-    dragging = null;
-    const [a, b] = [tpos(ts[0]), tpos(ts[1])];
-    touch2d = { pinch: true, dist: Math.hypot(a[0] - b[0], a[1] - b[1]), mx: (a[0] + b[0]) / 2, my: (a[1] + b[1]) / 2 };
-    mouse.inside = false;
-    return;
-  }
-  const [sx, sy] = tpos(ts[0]);
-  const [tx, ty] = screenToTile(sx, sy);
-  mouse.sx = sx; mouse.sy = sy; mouse.tx = tx; mouse.ty = ty;
-  mouse.inside = !!(tool || demolish);
-  touch2d = { pinch: false, sx, sy, cx: cam.x, cy: cam.y, tx, ty, moved: false, started: false };
-}, { passive: false });
-
-canvas.addEventListener('touchmove', e => {
-  e.preventDefault();
-  if (!touch2d) return;
-  const ts = e.touches;
-  if (touch2d.pinch && ts.length >= 2) {
-    const [a, b] = [tpos(ts[0]), tpos(ts[1])];
-    const dist = Math.hypot(a[0] - b[0], a[1] - b[1]), mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
-    const wx = touch2d.mx / cam.zoom + cam.x, wy = touch2d.my / cam.zoom + cam.y;
-    cam.zoom = Math.min(3, Math.max(0.4, cam.zoom * dist / touch2d.dist));
-    cam.x = wx - mx / cam.zoom; cam.y = wy - my / cam.zoom;
-    clampCam();
-    Object.assign(touch2d, { dist, mx, my });
-    return;
-  }
-  if (touch2d.pinch) return;
-  const [sx, sy] = tpos(ts[0]);
-  const [tx, ty] = screenToTile(sx, sy);
-  mouse.sx = sx; mouse.sy = sy; mouse.tx = tx; mouse.ty = ty;
-  if (Math.hypot(sx - touch2d.sx, sy - touch2d.sy) > 10) touch2d.moved = true;
-  if (tool || demolish) {
-    if (!touch2d.started && (tx !== touch2d.tx || ty !== touch2d.ty)) startTouchBuild();
-    if (touch2d.started && dragging) dragTo(tx, ty);
-  } else if (touch2d.moved) {
-    cam.x = touch2d.cx - (sx - touch2d.sx) / cam.zoom;
-    cam.y = touch2d.cy - (sy - touch2d.sy) / cam.zoom;
-    clampCam();
-  }
-}, { passive: false });
-
-function startTouchBuild() {
-  touch2d.started = true;
-  const { tx, ty } = touch2d;
-  if (demolish) { dragging = { button: 2 }; removeAt(tx, ty); return; }
-  dragging = { button: 0, lastTx: tx, lastTy: ty, lastBelt: null };
-  const b = place(tool, tx, ty, toolDir);
-  if (b && tool === 'belt') dragging.lastBelt = b;
-}
-
-canvas.addEventListener('touchend', e => {
-  e.preventDefault();
-  if (!touch2d) return;
-  if (e.touches.length > 0) { if (touch2d.pinch && e.touches.length === 1) touch2d = null; return; }
-  if (!touch2d.pinch) {
-    if (tool || demolish) { if (!touch2d.started) startTouchBuild(); }
-    else if (!touch2d.moved) {
-      selected = bAt(touch2d.tx, touch2d.ty);
-      renderInfo();
-      if (selected) $('side').classList.add('open');
-    }
-  }
-  dragging = null; touch2d = null;
-  if (!tool && !demolish) mouse.inside = false;
-}, { passive: false });
-canvas.addEventListener('touchcancel', () => { dragging = null; touch2d = null; });
 
 function togglePause() {
   paused = !paused;
@@ -1034,7 +732,6 @@ function closeModals() { for (const m of document.querySelectorAll('.modal')) m.
 for (const m of document.querySelectorAll('.modal')) {
   m.addEventListener('click', e => { if (e.target === m || e.target.classList.contains('close')) m.classList.add('hidden'); });
 }
-$('btn3d').onclick = () => { set3d(!mode3d); $('btn3d').blur(); };
 $('btnPause').onclick = () => { togglePause(); $('btnPause').blur(); };
 $('btnMenu').onclick = () => $('side').classList.toggle('open');
 $('btnCloseSide').onclick = () => $('side').classList.remove('open');
@@ -1072,8 +769,7 @@ function startGame(data) {
       if (b && level) { b.level = level; b.spent = spent || b.spent; }
     }
   }
-  cam.x = MAP_W * TILE / 2 - innerWidth / cam.zoom / 2;
-  cam.y = MAP_H * TILE / 2 - innerHeight / cam.zoom / 2;
+  resetPlayer();
   buildHotbar(); selectTool(null); renderMissions(); renderInfo();
   if (!data) $('help').classList.remove('hidden');
 }
@@ -1086,26 +782,12 @@ let uiTimer = 0, saveTimer = 0;
 function frame(now) {
   let dt = Math.min(0.1, (now - last) / 1000);
   last = now;
-  if (mode3d) {
-    if (!paused) { const steps = Math.ceil(dt / (1 / 60)); for (let i = 0; i < steps; i++) update(dt / steps); }
-    render3d(dt);
-  } else {
-  // Kamera per Tastatur
-  const sp = 500 / cam.zoom * dt;
-  if (keys['w'] || keys['arrowup']) cam.y -= sp;
-  if (keys['s'] || keys['arrowdown']) cam.y += sp;
-  if (keys['a'] || keys['arrowleft']) cam.x -= sp;
-  if (keys['d'] || keys['arrowright']) cam.x += sp;
-  clampCam();
-  if (mouse.inside) [mouse.tx, mouse.ty] = screenToTile(mouse.sx, mouse.sy);
-
   if (!paused) {
     // feste Teilschritte für stabile Simulation
     const steps = Math.ceil(dt / (1 / 60));
     for (let i = 0; i < steps; i++) update(dt / steps);
   }
-  render();
-  }
+  render3d(dt);
 
   uiTimer += dt; saveTimer += dt;
   if (uiTimer > 0.2) {
@@ -1119,7 +801,7 @@ function frame(now) {
 
 addEventListener('load', () => {
   if (touchUI) document.body.classList.add('touch');
-  resize();
+  if (!init3d()) return;
   startGame(load());
   addEventListener('beforeunload', save);
   last = performance.now();
