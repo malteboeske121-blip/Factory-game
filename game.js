@@ -4,7 +4,10 @@
 // =====================================================================
 
 const TILE = 32;
-const MAP_W = 64, MAP_H = 48;
+const MAP_W = 128, MAP_H = 96;
+// Alte Spielstände hatten eine 64×48-Karte: sie wird unverändert in die Mitte der großen Karte gesetzt.
+const LEGACY_W = 64, LEGACY_H = 48;
+const LEGACY_OFF = [(MAP_W - LEGACY_W) / 2, (MAP_H - LEGACY_H) / 2];
 const DX = [1, 0, -1, 0], DY = [0, 1, 0, -1];
 const SAVE_KEY = 'fabrik-sim-save-v1';
 
@@ -111,6 +114,8 @@ function newState(seed) {
     mission: 0,
     upgrades: { belt: 0, miner: 0, craft: 0, price: 0 },
     recipe: 'gear',
+    mapV: 2,       // Kartenformat (2 = große Karte)
+    legacy: false, // true = Kern stammt von einer alten 64×48-Karte
   };
 }
 
@@ -126,31 +131,54 @@ function rng(seed) {
 }
 
 function generateMap(seed) {
-  const r = rng(seed);
   tiles = [];
+  const rv = rng(seed ^ 0x5bd1e995);
   for (let y = 0; y < MAP_H; y++) {
     tiles.push([]);
-    for (let x = 0; x < MAP_W; x++) tiles[y].push({ ore: null, b: null, v: r() });
+    for (let x = 0; x < MAP_W; x++) tiles[y].push({ ore: null, b: null, v: rv() });
   }
-  const blob = (ore, cx, cy, rad) => {
+  // Erzfeld als unregelmäßiger Klecks; bounds = [x0, y0, x1, y1] begrenzt den Bereich
+  const blob = (r, ore, cx, cy, rad, bounds = [0, 0, MAP_W, MAP_H]) => {
     for (let y = cy - rad - 1; y <= cy + rad + 1; y++)
       for (let x = cx - rad - 1; x <= cx + rad + 1; x++) {
-        if (x < 0 || y < 0 || x >= MAP_W || y >= MAP_H) continue;
+        if (x < bounds[0] || y < bounds[1] || x >= bounds[2] || y >= bounds[3]) continue;
         const d = Math.hypot(x - cx, y - cy) + r() * 1.2;
         if (d <= rad) tiles[y][x].ore = ore;
       }
   };
+  const ores = ['iron_ore', 'copper_ore', 'coal'];
+  if (state.legacy) {
+    // Außenring der großen Karte (der Kern bleibt frei)
+    const r2 = rng(seed + 7), [ox, oy] = LEGACY_OFF;
+    for (let i = 0, n = 0; i < 400 && n < 40; i++) {
+      const x = Math.floor(r2() * MAP_W), y = Math.floor(r2() * MAP_H), rad = 2 + Math.floor(r2() * 4);
+      if (x > ox - rad - 2 && x < ox + LEGACY_W + rad + 2 && y > oy - rad - 2 && y < oy + LEGACY_H + rad + 2) continue;
+      blob(r2, ores[n % 3], x, y, rad); n++;
+    }
+    // Kern exakt wie die alte Karte (gleiche Zufallsfolge wie früher)
+    const r = rng(seed);
+    for (let y = 0; y < LEGACY_H; y++) for (let x = 0; x < LEGACY_W; x++) tiles[y + oy][x + ox].v = r();
+    const core = [ox, oy, ox + LEGACY_W, oy + LEGACY_H];
+    const lb = (ore, cx, cy, rad) => blob(r, ore, cx + ox, cy + oy, rad, core);
+    ores.forEach((ore, i) => {
+      const a = (i / 3) * Math.PI * 2 + r();
+      lb(ore, Math.round(LEGACY_W / 2 + Math.cos(a) * 8), Math.round(LEGACY_H / 2 + Math.sin(a) * 6), 3);
+    });
+    for (let i = 0; i < 18; i++) lb(ores[i % 3], Math.floor(r() * LEGACY_W), Math.floor(r() * LEGACY_H), 2 + Math.floor(r() * 3));
+    return;
+  }
+  const r = rng(seed);
   const cx = MAP_W / 2, cy = MAP_H / 2;
   // Startfelder in der Nähe der Mitte
-  const ores = ['iron_ore', 'copper_ore', 'coal'];
   ores.forEach((ore, i) => {
     const a = (i / 3) * Math.PI * 2 + r();
-    blob(ore, Math.round(cx + Math.cos(a) * 8), Math.round(cy + Math.sin(a) * 6), 3);
+    blob(r, ore, Math.round(cx + Math.cos(a) * 8), Math.round(cy + Math.sin(a) * 6), 3);
   });
-  // weitere Felder zufällig verteilt
-  for (let i = 0; i < 18; i++) {
-    const ore = ores[i % 3];
-    blob(ore, Math.floor(r() * MAP_W), Math.floor(r() * MAP_H), 2 + Math.floor(r() * 3));
+  // weitere Felder über die ganze Karte, nach außen hin größer
+  for (let i = 0; i < 52; i++) {
+    const x = Math.floor(r() * MAP_W), y = Math.floor(r() * MAP_H);
+    const far = Math.hypot((x - cx) / MAP_W, (y - cy) / MAP_H) * 2; // 0 = Mitte, ~1 = Rand
+    blob(r, ores[i % 3], x, y, 2 + Math.floor(r() * 2.5 + far * 2));
   }
 }
 
@@ -759,12 +787,16 @@ function load() {
 
 function startGame(data) {
   state = data ? Object.assign(newState(), data.state) : newState();
+  // Spielstand von der alten, kleinen Karte: Kern übernehmen und Gebäude in die Mitte verschieben
+  let off = [0, 0];
+  if (data && !data.state.mapV) { state.legacy = true; off = LEGACY_OFF; }
+  state.mapV = 2;
   generateMap(state.seed);
   buildings = [];
   incomeLog = []; simTime = 0; selected = null;
   if (data) {
     for (const [type, x, y, dir, recipe, level, spent] of data.buildings) {
-      const b = place(type, x, y, dir, true);
+      const b = place(type, x + off[0], y + off[1], dir, true);
       if (b && recipe) b.recipe = recipe;
       if (b && level) { b.level = level; b.spent = spent || b.spent; }
     }

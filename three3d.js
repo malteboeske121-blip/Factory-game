@@ -33,10 +33,10 @@ function init3d() {
   v3.renderer = r;
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x9cc8ec);
-  scene.fog = new THREE.Fog(0x9cc8ec, 40, 120);
+  scene.background = new THREE.Color(WORLD_FOG);
+  scene.fog = new THREE.Fog(WORLD_FOG, 80, 400);
   v3.scene = scene;
-  v3.camera = new THREE.PerspectiveCamera(70, 1, 0.05, 300);
+  v3.camera = new THREE.PerspectiveCamera(62, 1, 0.1, 2000);
   v3.camera.rotation.order = 'YXZ';
 
   scene.add(new THREE.HemisphereLight(0xdfefff, 0x4a5a3a, 0.75));
@@ -122,58 +122,13 @@ function init3d() {
 
 // Bodentextur aus der Karte erzeugen
 function buildGround() {
-  if (v3.ground) { v3.scene.remove(v3.ground); v3.ground.material.map.dispose(); v3.ground.geometry.dispose(); }
-  const S = touchUI ? 24 : 32;
-  const c = document.createElement('canvas'); c.width = MAP_W * S; c.height = MAP_H * S;
-  const g = c.getContext('2d');
-  // Gras
-  for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) {
-    const v = 70 + Math.floor(tiles[y][x].v * 14);
-    g.fillStyle = `rgb(${v - 18},${v + 24},${v - 30})`;
-    g.fillRect(x * S, y * S, S, S);
-  }
-  const r0 = rng(12345);
-  for (let i = 0; i < MAP_W * MAP_H * 3; i++) { // Grashalme / Farbtupfer
-    g.fillStyle = r0() < 0.5 ? 'rgba(20,50,10,.18)' : 'rgba(160,200,90,.12)';
-    g.fillRect(r0() * c.width, r0() * c.height, 1.5, 3);
-  }
-  // Erzfelder: dunkle Erde mit weichem Rand, Kies und Erzkörnern
-  const ground = { iron_ore: ['#4e3f34', '#7a4228', '#a8a4a0'], copper_ore: ['#4d4032', '#a8702a', '#e0b860'], coal: ['#2c2722', '#101012', '#3a3e46'] };
-  for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) {
-    const t = tiles[y][x];
-    if (!t.ore) continue;
-    const [earth, ore] = ground[t.ore], r = rng(x * 9973 + y * 31);
-    const cx = (x + 0.5) * S, cy = (y + 0.5) * S;
-    const grd = g.createRadialGradient(cx, cy, S * 0.2, cx, cy, S * 0.85);
-    grd.addColorStop(0, earth); grd.addColorStop(1, earth + '00');
-    g.fillStyle = grd; g.fillRect(cx - S, cy - S, S * 2, S * 2);
-    for (let i = 0; i < 14; i++) { // Kies
-      const v = 90 + Math.floor(r() * 60);
-      g.fillStyle = `rgba(${v},${v - 6},${v - 12},.55)`;
-      g.beginPath(); g.arc(x * S + r() * S, y * S + r() * S, 0.6 + r() * 1.4, 0, 7); g.fill();
-    }
-    for (let i = 0; i < 7; i++) { // Erzkörner mit Glanzpunkt
-      const px = x * S + 2 + r() * (S - 4), py = y * S + 2 + r() * (S - 4), rr = (0.6 + r() * 1.2) * S / 32;
-      g.fillStyle = ore; g.beginPath(); g.arc(px, py, rr, 0, 7); g.fill();
-    }
-  }
-  g.strokeStyle = 'rgba(0,0,0,.12)'; g.lineWidth = 1;
-  g.beginPath();
-  for (let x = 0; x <= MAP_W; x++) { g.moveTo(x * S + .5, 0); g.lineTo(x * S + .5, c.height); }
-  for (let y = 0; y <= MAP_H; y++) { g.moveTo(0, y * S + .5); g.lineTo(c.width, y * S + .5); }
-  g.stroke();
-  const tex = new THREE.CanvasTexture(c);
-  tex.anisotropy = 8;
-  tex.magFilter = THREE.NearestFilter;
-  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(MAP_W * T3, MAP_H * T3),
-    new THREE.MeshStandardMaterial({ map: tex, roughness: 1 }));
-  mesh.rotation.x = -Math.PI / 2;
-  mesh.position.set(MAP_W * T3 / 2, 0, MAP_H * T3 / 2);
-  mesh.receiveShadow = true;
-  v3.scene.add(mesh);
-  v3.ground = mesh;
+  for (const m of [v3.ground, v3.grid, ...(v3.dirt || [])]) if (m) { v3.scene.remove(m); }
+  v3.cullList = [];
+  buildMainGround();   // world3d.js
   v3.groundTiles = tiles;
   buildOreRocks();
+  buildGrassDeco();    // world3d.js
+  buildSurroundings(); // world3d.js: Zaun, Wald, Seen, Berge, Himmel
   // vorhandene Gebäude-Objekte verwerfen
   for (const o of v3.objs.values()) v3.scene.remove(o);
   v3.objs.clear();
@@ -185,43 +140,38 @@ function buildOreRocks() {
   if (v3.ore) for (const m of v3.ore.meshes) { v3.scene.remove(m); m.dispose && m.dispose(); }
   if (!v3.rockGeo) {
     v3.rockGeo = rockGeometry(1, 1, 0.3);
+    v3.rockLo = rockGeometry(1, 0, 0.3);
     v3.nugGeo = { iron_ore: rockGeometry(2, 0, 0.35), copper_ore: rockGeometry(3, 0, 0.45), coal: new THREE.OctahedronGeometry(1, 0) };
   }
   const per = { iron_ore: [], copper_ore: [], coal: [] };
   for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) if (tiles[y][x].ore) per[tiles[y][x].ore].push([x, y]);
   const meshes = [], tileRefs = new Map(); // "x,y" -> [[mesh, index], ...]
   const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), E = new THREE.Euler(), V = new THREE.Vector3(), Sc = new THREE.Vector3();
-  const rocksPer = touchUI ? 2 : 3;
+  const rocksPer = touchUI ? 1 : 2, nugsPer = touchUI ? 1 : 2;
   for (const ore of Object.keys(per)) {
     const list = per[ore];
     if (!list.length) continue;
-    const rocks = new THREE.InstancedMesh(v3.rockGeo, oreMat(ore, v3.renderer), list.length * rocksPer);
-    const nugs = new THREE.InstancedMesh(v3.nugGeo[ore], nuggetMat(ore, v3.renderer), list.length * rocksPer * 2);
-    rocks.castShadow = rocks.receiveShadow = true; nugs.castShadow = true;
-    rocks.userData.base = []; nugs.userData.base = [];
-    let ri = 0, ni = 0;
+    const rocks = new Batch(v3.rockGeo, oreMat(ore, v3.renderer), 24, { cast: true, cull: 65, lo: v3.rockLo, loDist: 22 });
+    const nugs = new Batch(v3.nugGeo[ore], nuggetMat(ore, v3.renderer), 24, { cull: 30 });
     for (const [x, y] of list) {
-      const r = rng(x * 7919 + y * 104729 + ore.length);
-      const refs = [];
+      const r = rng(x * 7919 + y * 104729 + ore.length), key = x + ',' + y;
       for (let k = 0; k < rocksPer; k++) {
         const px = (x + 0.18 + r() * 0.64) * T3, pz = (y + 0.18 + r() * 0.64) * T3;
-        const w = 0.22 + r() * 0.3, hgt = 0.16 + r() * 0.28;
+        const w = (0.22 + r() * 0.3) * (touchUI ? 1.3 : 1), hgt = 0.16 + r() * 0.28;
         E.set(r() * 0.5, r() * Math.PI * 2, r() * 0.5); Q.setFromEuler(E);
         V.set(px, hgt * 0.35, pz); Sc.set(w, hgt, w * (0.7 + r() * 0.5));
-        M.compose(V, Q, Sc); rocks.setMatrixAt(ri, M); rocks.userData.base.push(M.clone()); refs.push([rocks, ri++]);
-        // 2 Kristalle/Nuggets pro Fels, schräg aus der Oberfläche ragend
-        for (let j = 0; j < 2; j++) {
+        M.compose(V, Q, Sc); rocks.add(M, null, key);
+        // Kristalle/Nuggets, schräg aus der Oberfläche ragend
+        for (let j = 0; j < nugsPer; j++) {
           const a = r() * Math.PI * 2, ns = (ore === 'coal' ? 0.07 : 0.06) + r() * 0.07;
           V.set(px + Math.cos(a) * w * 0.55, hgt * 0.35 + hgt * (0.45 + r() * 0.4), pz + Math.sin(a) * w * 0.55);
           E.set(r() * 3, r() * 3, r() * 3); Q.setFromEuler(E);
           Sc.set(ns, ns * (ore === 'coal' ? 1.6 : 1.1), ns);
-          M.compose(V, Q, Sc); nugs.setMatrixAt(ni, M); nugs.userData.base.push(M.clone()); refs.push([nugs, ni++]);
+          M.compose(V, Q, Sc); nugs.add(M, null, key);
         }
       }
-      tileRefs.set(x + ',' + y, refs);
     }
-    rocks.instanceMatrix.needsUpdate = nugs.instanceMatrix.needsUpdate = true;
-    v3.scene.add(rocks, nugs); meshes.push(rocks, nugs);
+    meshes.push(...rocks.build(v3.scene, tileRefs), ...nugs.build(v3.scene, tileRefs));
   }
   v3.ore = { meshes, tileRefs, hidden: new Set(), sig: '' };
 }
@@ -759,7 +709,7 @@ function rotateCam(dx, dy) {
   c.yaw -= dx * 0.008;
   c.pitch = Math.max(0.3, Math.min(1.45, c.pitch + dy * 0.006));
 }
-function zoomCam(f) { v3.cam.dist = Math.max(5, Math.min(60, v3.cam.dist * f)); }
+function zoomCam(f) { v3.cam.dist = Math.max(5, Math.min(90, v3.cam.dist * f)); }
 
 // =====================================================================
 //  Eingabe: Maus, Tastatur, Touch
@@ -976,7 +926,8 @@ function render3d(dt) {
     ty + Math.sin(c.pitch) * c.dist,
     tz + Math.cos(c.yaw) * Math.cos(c.pitch) * c.dist);
   cam3.lookAt(tx, ty, tz);
-  v3.scene.fog.near = c.dist + 25; v3.scene.fog.far = c.dist + 110;
+  v3.scene.fog.near = c.dist + 70; v3.scene.fog.far = c.dist + 380;
+  updateWorld(dt);
   v3.sun.position.set(p.x + 20, 40, p.z + 10);
   v3.sun.target.position.set(p.x, 0, p.z);
 

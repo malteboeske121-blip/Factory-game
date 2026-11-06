@@ -4,6 +4,11 @@ Ein kleines Fabrik-Aufbauspiel im Browser – ohne Installation, ohne Abhängigk
 
 **Starten:** `index.html` im Browser öffnen.
 
+## Welt
+Die Karte hat 128 × 96 Felder. Um sie herum liegt eine Landschaft mit Holzzaun, Mischwald, Seen,
+Hügeln und schneebedeckten Bergen. Alte Spielstände (64 × 48) werden automatisch in die Mitte der
+großen Karte übernommen.
+
 ## Spielprinzip
 Baue Erz ab, schmelze es zu Platten, montiere daraus Bauteile und verkaufe sie.
 Mit dem Geld baust du deine Fabrik aus, kaufst Upgrades und erfüllst Aufträge.
