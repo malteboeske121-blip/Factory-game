@@ -9,6 +9,13 @@ Die Karte hat 128 × 96 Felder. Um sie herum liegt eine Landschaft mit Holzzaun,
 Hügeln und schneebedeckten Bergen. Alte Spielstände (64 × 48) werden automatisch in die Mitte der
 großen Karte übernommen.
 
+## Start
+Jedes neue Spiel beginnt mit **1.000 €** und einer fertigen **Startfabrik**: Eisen- und Kohlebohrer liefern über
+Förderbänder an einen Schmelzofen, die Eisenplatten gehen direkt zum Verkauf.
+
+**Pfeile am Boden:** gelb = Ausgang (rot = blockiert), grün = Eingang. Schmelzofen und Montierer haben
+3 Eingänge (hinten, links, rechts) und 1 Ausgang (vorne).
+
 ## Spielprinzip
 Baue Erz ab, schmelze es zu Platten, montiere daraus Bauteile und verkaufe sie.
 Mit dem Geld baust du deine Fabrik aus, kaufst Upgrades und erfüllst Aufträge.

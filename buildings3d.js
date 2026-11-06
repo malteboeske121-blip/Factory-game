@@ -360,3 +360,73 @@ function animateExtras(b, P, dt) {
   });
   if (P.qbeam) P.qbeam.material.opacity = 0.2 + Math.sin(simTime * 3) * 0.1;
 }
+
+// =====================================================================
+//  Ausgabe-Pfeile auf dem Boden: zeigen deutlich, wohin ein Gebäude ausgibt
+//  gelb = läuft, rot = Ausgabe blockiert (nichts in Pfeilrichtung, das annimmt)
+// =====================================================================
+function chevronGeo() {
+  if (BC.chev) return BC.chev;
+  const sh = new THREE.Shape();
+  sh.moveTo(-0.16, 0.42); sh.lineTo(0.2, 0); sh.lineTo(-0.16, -0.42); sh.lineTo(-0.34, -0.42); sh.lineTo(0.02, 0); sh.lineTo(-0.34, 0.42); sh.closePath();
+  const g = new THREE.ShapeGeometry(sh); g.rotateX(-Math.PI / 2);
+  const o = new THREE.Shape(); // dunkler Rand für Kontrast auf Gras
+  o.moveTo(-0.2, 0.52); o.lineTo(0.3, 0); o.lineTo(-0.2, -0.52); o.lineTo(-0.44, -0.52); o.lineTo(-0.04, 0); o.lineTo(-0.44, 0.52); o.closePath();
+  const go = new THREE.ShapeGeometry(o); go.rotateX(-Math.PI / 2);
+  return (BC.chev = { g, go });
+}
+function addOutArrows(grp, P, dirs = [0]) {
+  const { g, go } = chevronGeo();
+  const mat = new THREE.MeshBasicMaterial({ color: 0xffd23a, transparent: true, opacity: 0.95, depthWrite: false });
+  const edge = new THREE.MeshBasicMaterial({ color: 0x1a1406, transparent: true, opacity: 0.6, depthWrite: false });
+  P.outArrows = []; P.outMat = mat; P.outEdge = edge;
+  for (const d of dirs) {
+    const holder = new THREE.Group(); holder.rotation.y = -d * Math.PI / 2; // lokale Richtung (0 = +x)
+    for (let k = 0; k < 2; k++) {
+      const c = new THREE.Group();
+      const e = new THREE.Mesh(go, edge); e.position.y = 0.3; e.renderOrder = 3; // schwebt über dem Gras
+      const m = new THREE.Mesh(g, mat); m.position.y = 0.31; m.renderOrder = 4;
+      c.add(e, m); holder.add(c); P.outArrows.push(c);
+    }
+    grp.add(holder);
+  }
+}
+function outputBlocked(b) {
+  if (b.type === 'miner') return b.out.length >= 2;
+  if (b.type === 'furnace' || b.type === 'assembler') return b.out.length >= 4;
+  if (b.type === 'splitter') return !!b.item && b.p >= 1;
+  return false;
+}
+function animateOutArrows(b, P) {
+  if (!P.outArrows) return;
+  const blocked = b.inv ? outputBlocked(b) : false;
+  P.outMat.color.setHex(blocked ? 0xff3a2a : 0xffd23a);
+  const ph = (simTime * 1.1) % 1;
+  P.outArrows.forEach((c, i) => {
+    const f = (ph + (i % 2) * 0.5) % 1; // zwei Pfeile wandern nach außen
+    c.position.x = 0.9 + f * 0.85;
+    const sc = 1.6 * (0.85 + Math.sin(f * Math.PI) * 0.2); c.scale.set(sc, 1, sc);
+  });
+  P.outMat.opacity = blocked ? 0.75 + Math.sin(simTime * 10) * 0.25 : 0.95;
+}
+
+// grüne Eingangs-Pfeile (zeigen zum Gebäude hin): hinten, links, rechts
+function addInArrows(grp, P, dirs = [1, 2, 3]) {
+  const { g, go } = chevronGeo();
+  const mat = new THREE.MeshBasicMaterial({ color: 0x4ee06a, transparent: true, opacity: 0.9, depthWrite: false });
+  const edge = new THREE.MeshBasicMaterial({ color: 0x06140a, transparent: true, opacity: 0.55, depthWrite: false });
+  P.inArrows = [];
+  for (const d of dirs) {
+    const holder = new THREE.Group(); holder.rotation.y = -d * Math.PI / 2;
+    const c = new THREE.Group(); c.rotation.y = Math.PI; // Spitze zeigt zum Gebäude
+    const e = new THREE.Mesh(go, edge); e.position.y = 0.28; e.renderOrder = 3;
+    const m = new THREE.Mesh(g, mat); m.position.y = 0.29; m.renderOrder = 4;
+    c.add(e, m); holder.add(c); P.inArrows.push(c);
+    grp.add(holder);
+  }
+}
+function animateInArrows(P) {
+  if (!P.inArrows) return;
+  const f = (simTime * 0.9) % 1;
+  for (const c of P.inArrows) { c.position.x = 1.55 - f * 0.5; const sc = 1.15 * (0.85 + Math.sin(f * Math.PI) * 0.2); c.scale.set(sc, 1, sc); }
+}

@@ -85,15 +85,22 @@ function updateCulling() {
 
 // mehrere Formen zu einer zusammenfügen (weniger Zeichenaufrufe)
 function mergeGeometries(parts) {
-  const pos = [], nor = [];
+  const pos = [], nor = [], uv = [], col = [];
+  let anyCol = false;
+  for (const [geo] of parts) if (geo.attributes.color) anyCol = true;
   for (const [geo, mat] of parts) {
     const g = geo.index ? geo.toNonIndexed() : geo.clone();
     g.applyMatrix4(mat);
+    const n = g.attributes.position.count;
     pos.push(...g.attributes.position.array); nor.push(...g.attributes.normal.array);
+    if (g.attributes.uv) uv.push(...g.attributes.uv.array); else for (let i = 0; i < n; i++) uv.push(0, 0);
+    if (anyCol) { if (g.attributes.color) col.push(...g.attributes.color.array); else for (let i = 0; i < n; i++) col.push(1, 1, 1); }
   }
   const out = new THREE.BufferGeometry();
   out.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   out.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  out.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  if (anyCol) out.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   return out;
 }
 
@@ -180,6 +187,114 @@ function detailTexture() {
   g.globalAlpha = 1;
   const t = finish(c); t.anisotropy = 8;
   return (texCache.detail = t);
+}
+
+// ---------- Baum-Texturen (grau gehalten, die Farbe kommt pro Baum dazu) ----------
+function barkTexture(birch) {
+  const key = birch ? 'barkB' : 'bark';
+  if (texCache[key]) return texCache[key];
+  const W = 128, H = 256, [c, g] = newCanvas(W, H), rnd = texRng(birch ? 61 : 63);
+  g.fillStyle = birch ? '#e8e4dc' : '#6a5038'; g.fillRect(0, 0, W, H);
+  addNoise(g, birch ? 18 : 30, rnd);
+  if (birch) { // Birke: schwarze Querstreifen und Flecken
+    for (let i = 0; i < 26; i++) {
+      const y = rnd() * H, w = 10 + rnd() * 40, x = rnd() * W;
+      g.fillStyle = `rgba(30,28,26,${0.6 + rnd() * 0.4})`;
+      g.fillRect(x - w / 2, y, w, 1.5 + rnd() * 3);
+      if (x + w / 2 > W) g.fillRect(x - w / 2 - W, y, w, 2);
+    }
+  } else { // Borke: senkrechte Risse und helle Rippen
+    for (let i = 0; i < 40; i++) {
+      let x = rnd() * W, y = 0;
+      g.strokeStyle = `rgba(25,15,8,${0.5 + rnd() * 0.4})`; g.lineWidth = 1.5 + rnd() * 2.5;
+      g.beginPath(); g.moveTo(x, y);
+      while (y < H) { y += 8 + rnd() * 18; x += (rnd() - 0.5) * 8; g.lineTo(x, y); }
+      g.stroke();
+    }
+    for (let i = 0; i < 30; i++) { g.fillStyle = 'rgba(160,130,100,.25)'; g.fillRect(rnd() * W, rnd() * H, 3 + rnd() * 4, 10 + rnd() * 30); }
+  }
+  const t = finish(c); t.anisotropy = 4;
+  return (texCache[key] = t);
+}
+function foliageTexture(kind) { // 'needle' oder 'leaf'
+  const key = 'fol-' + kind;
+  if (texCache[key]) return texCache[key];
+  const S = 256, [c, g] = newCanvas(S, S), rnd = texRng(kind === 'needle' ? 71 : 73);
+  g.fillStyle = '#4a4a4a'; g.fillRect(0, 0, S, S);
+  const wrap = fn => { for (const ox of [-S, 0, S]) for (const oy of [-S, 0, S]) fn(ox, oy); };
+  if (kind === 'needle') {
+    g.lineCap = 'round';
+    for (let i = 0; i < 5000; i++) {
+      const x = rnd() * S, y = rnd() * S, a = Math.PI / 2 + (rnd() - 0.5) * 1.4, l = 4 + rnd() * 7, v = 110 + rnd() * 145;
+      g.strokeStyle = `rgb(${v},${v},${v})`; g.lineWidth = 0.9 + rnd() * 0.6;
+      const ex = Math.cos(a) * l, ey = Math.sin(a) * l;
+      wrap((ox, oy) => { g.beginPath(); g.moveTo(x + ox, y + oy); g.lineTo(x + ox + ex, y + oy + ey); g.stroke(); });
+    }
+  } else {
+    for (let i = 0; i < 1800; i++) {
+      const x = rnd() * S, y = rnd() * S, r = 3 + rnd() * 5, a = rnd() * Math.PI, v = 120 + rnd() * 135;
+      wrap((ox, oy) => {
+        g.fillStyle = `rgb(${v},${v},${v})`; g.beginPath(); g.ellipse(x + ox, y + oy, r, r * 0.55, a, 0, 7); g.fill();
+        g.strokeStyle = 'rgba(40,40,40,.35)'; g.lineWidth = 0.6; g.stroke();
+      });
+    }
+  }
+  const t = finish(c); t.anisotropy = 4;
+  return (texCache[key] = t);
+}
+// Eckpunktfarbe als Abschattung: unten/innen dunkler
+function shadeByHeight(geo, y0, y1, lo = 0.45, hi = 1.0) {
+  const p = geo.attributes.position, col = new Float32Array(p.count * 3);
+  for (let i = 0; i < p.count; i++) { const k = lo + (hi - lo) * smooth(y0, y1, p.getY(i)); col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = k; }
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return geo;
+}
+// Tanne: 7 Nadel-Ebenen mit hängenden, unregelmäßigen Rändern (Fuß bei y = 0, Höhe ~5,6)
+function pineGeometry(detail) {
+  const parts = [], seg = detail ? 10 : 6;
+  for (let k = 0; k < 7; k++) {
+    const f = k / 6, w = 1.75 - f * 1.35, hh = 1.5 - f * 0.55, y = 1.3 + f * 3.6;
+    const cg = new THREE.ConeGeometry(1, 1, seg, 1, true).toNonIndexed();
+    const p = cg.attributes.position;
+    for (let i = 0; i < p.count; i++) { // Unterkante zackig und hängend
+      const px = p.getX(i), py = p.getY(i), pz = p.getZ(i);
+      if (py < 0) { const a = Math.atan2(pz, px), j = 0.8 + 0.35 * Math.abs(Math.sin(a * 3.7 + k * 1.3)); p.setXYZ(i, px * j, py - 0.12 * Math.sin(a * 5 + k), pz * j); }
+    }
+    cg.computeVertexNormals();
+    shadeByHeight(cg, -0.5, 0.5, 0.35, 1.0);
+    parts.push([cg, new THREE.Matrix4().compose(new THREE.Vector3(0, y, 0), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), k * 0.7), new THREE.Vector3(w, hh, w))]);
+  }
+  return mergeGeometries(parts);
+}
+// Laubkrone: mehrere Blätter-Büschel, weich schattiert (Mitte bei y = 0, Radius ~1,3)
+function crownGeometry(detail, seed) {
+  const r = rng(seed), parts = [], n = detail ? 6 : 4;
+  for (let k = 0; k < n; k++) {
+    const sg = new THREE.IcosahedronGeometry(1, detail ? 2 : 1);
+    const p = sg.attributes.position, nrm = sg.attributes.normal;
+    const h = (x, y, z) => { const s = Math.sin(x * 12.9898 + y * 78.233 + z * 37.719 + seed + k) * 43758.5453; return s - Math.floor(s); };
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i), y = p.getY(i), z = p.getZ(i), j = 0.85 + 0.3 * h(Math.round(x * 50), Math.round(y * 50), Math.round(z * 50));
+      p.setXYZ(i, x * j, y * j, z * j); nrm.setXYZ(i, x, y, z); // weiche Normalen = Kugel
+    }
+    const a = k / n * Math.PI * 2 + r(), d = k === 0 ? 0 : 0.55 + r() * 0.25, sc = k === 0 ? 0.95 : 0.6 + r() * 0.25;
+    const m = new THREE.Matrix4().compose(new THREE.Vector3(Math.cos(a) * d, k === 0 ? 0.1 : (r() - 0.3) * 0.6, Math.sin(a) * d), new THREE.Quaternion(), new THREE.Vector3(sc, sc * 0.85, sc));
+    parts.push([sg, m]);
+  }
+  const g = mergeGeometries(parts);
+  return shadeByHeight(g, -1.0, 1.0, 0.4, 1.05);
+}
+// Stamm (+ Äste für Laubbäume), Fuß bei y = 0, Höhe 1 (wird skaliert)
+function trunkGeometry(branches) {
+  const t = new THREE.CylinderGeometry(0.07, 0.13, 1, 8, 1); t.translate(0, 0.5, 0);
+  const parts = [[t, new THREE.Matrix4()]];
+  const root = new THREE.CylinderGeometry(0.13, 0.2, 0.12, 8); root.translate(0, 0.06, 0); parts.push([root, new THREE.Matrix4()]);
+  if (branches) for (let i = 0; i < 3; i++) {
+    const b = new THREE.CylinderGeometry(0.025, 0.045, 0.5, 5); b.translate(0, 0.25, 0);
+    const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.8 * Math.cos(i * 2.1), i * 2.1, 0.8 * Math.sin(i * 2.1)));
+    parts.push([b, new THREE.Matrix4().compose(new THREE.Vector3(0, 0.62 + i * 0.1, 0), q, new THREE.Vector3(1, 1, 1))]);
+  }
+  return mergeGeometries(parts);
 }
 
 function skyTexture() {
@@ -412,34 +527,41 @@ function buildSurroundings() {
     if (d < 3 || d > 90 || inLake(x, z)) continue;
     boulders.push([x, terrainHeight(x, z, lakes), z, 0.5 + r() * 1.4, r() * 6]);
   }
-  const trunkMat = new THREE.MeshStandardMaterial({ color: 0x5a3e26, roughness: 0.95 });
-  const needleMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, flatShading: true });
-  const leafMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85, flatShading: true });
-  const trunkGeo = new THREE.CylinderGeometry(0.12, 0.2, 1, 6);
-  const coneGeo = new THREE.ConeGeometry(1, 1, 7);
-  const crownGeo = rockGeometry(9, 1, 0.22), crownLo = rockGeometry(9, 0, 0.22);
-  // Tanne: drei Nadel-Ebenen als eine Form (Einheitsgröße, Fuß bei y = 0)
-  const L = (y, w, hh) => new THREE.Matrix4().compose(new THREE.Vector3(0, y, 0), new THREE.Quaternion(), new THREE.Vector3(w, hh, w));
-  const pineGeo = mergeGeometries([[coneGeo, L(1.9, 1.5, 2.4)], [coneGeo, L(3.2, 1.15, 2.0)], [coneGeo, L(4.3, 0.75, 1.6)]]);
+  // Materialien mit Rinden-, Nadel- und Blatttextur; Farbe je Baum über Instanzfarbe, Abschattung über Eckpunktfarbe
+  const bark = barkTexture(false), barkB = barkTexture(true);
+  const trunkMat = new THREE.MeshStandardMaterial({ map: bark, bumpMap: bark, bumpScale: 0.05, roughness: 0.95, vertexColors: false });
+  const birchMat = new THREE.MeshStandardMaterial({ map: barkB, bumpMap: barkB, bumpScale: 0.03, roughness: 0.85 });
+  const needle = foliageTexture('needle'), leaf = foliageTexture('leaf');
+  needle.repeat.set(3, 2); leaf.repeat.set(2, 2);
+  const needleMat = new THREE.MeshStandardMaterial({ map: needle, bumpMap: needle, bumpScale: 0.04, roughness: 0.9, vertexColors: true, side: THREE.DoubleSide });
+  const leafMat = new THREE.MeshStandardMaterial({ map: leaf, bumpMap: leaf, bumpScale: 0.05, roughness: 0.85, vertexColors: true });
+  const pineGeo = pineGeometry(true), pineLo = pineGeometry(false);
+  const crownGeo = crownGeometry(true, 3), crownLo = crownGeometry(false, 3);
+  const trunkP = trunkGeometry(false), trunkL = trunkGeometry(true);
   const T = { cast: true, cull: 260 };
-  const trunks = new Batch(trunkGeo, trunkMat, 96, T);
-  const pinesB = new Batch(pineGeo, needleMat, 96, T);
-  const crowns = new Batch(crownGeo, leafMat, 96, Object.assign({ lo: crownLo, loDist: 50 }, T));
+  const trunks = new Batch(trunkP, trunkMat, 96, T);
+  const trunksL = new Batch(trunkL, trunkMat, 96, T);
+  const birches = new Batch(trunkL, birchMat, 96, T);
+  const pinesB = new Batch(pineGeo, needleMat, 96, Object.assign({ lo: pineLo, loDist: 45 }, T));
+  const crowns = new Batch(crownGeo, leafMat, 96, Object.assign({ lo: crownLo, loDist: 45 }, T));
   const C = new THREE.Color();
   for (const [x, h, z, s, rot, v] of pines) {
     Q.setFromAxisAngle(up, rot);
-    V.set(x, h + 0.9 * s, z); S.set(s, 1.8 * s, s); M.compose(V, Q, S); trunks.add(M);
-    C.setHSL(0.31 + v * 0.05, 0.45, 0.17 + v * 0.07);
-    V.set(x, h, z); S.set(s, s, s); M.compose(V, Q, S); pinesB.add(M, C.getHex());
+    V.set(x, h, z); S.set(s, 2.2 * s, s); M.compose(V, Q, S); trunks.add(M);
+    C.setHSL(0.3 + v * 0.06, 0.42, 0.34 + v * 0.1);
+    V.set(x, h, z); S.set(s, s * (0.9 + v * 0.3), s); M.compose(V, Q, S); pinesB.add(M, C.getHex());
   }
   for (const [x, h, z, s, rot, v] of leafy) {
     Q.setFromAxisAngle(up, rot);
-    V.set(x, h + 1.1 * s, z); S.set(s * 1.2, 2.2 * s, s * 1.2); M.compose(V, Q, S); trunks.add(M);
-    // meist grün, ein paar Bäume herbstlich
-    if (v > 0.88) C.setHSL(0.08 + (v - 0.88) * 0.6, 0.65, 0.42); else C.setHSL(0.24 + v * 0.08, 0.5, 0.25 + v * 0.1);
-    V.set(x, h + 3.0 * s, z); S.set(1.6 * s, 1.5 * s, 1.6 * s); M.compose(V, Q, S); crowns.add(M, C.getHex());
+    const birch = v > 0.7 && v < 0.82;
+    V.set(x, h, z); S.set(s * 1.3, 3.0 * s, s * 1.3); M.compose(V, Q, S); (birch ? birches : trunksL).add(M);
+    // meist grün, Birken heller, ein paar Bäume herbstlich
+    if (v > 0.9) C.setHSL(0.07 + (v - 0.9) * 0.8, 0.7, 0.55);
+    else if (birch) C.setHSL(0.22, 0.55, 0.55);
+    else C.setHSL(0.24 + v * 0.07, 0.5, 0.42 + v * 0.1);
+    V.set(x, h + 3.1 * s, z); S.set(1.35 * s, 1.35 * s, 1.35 * s); M.compose(V, Q, S); crowns.add(M, C.getHex());
   }
-  for (const b of [trunks, pinesB, crowns]) b.build(world);
+  for (const b of [trunks, trunksL, birches, pinesB, crowns]) b.build(world);
   // Findlinge
   const bmat = new THREE.MeshStandardMaterial({ color: 0x8a8680, roughness: 1, flatShading: true });
   const bb = new Batch(rockGeometry(4, 1, 0.3), bmat, 96, { cast: true, cull: 200 });

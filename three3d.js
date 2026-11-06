@@ -509,6 +509,10 @@ function makeModel(b) {
     }
   }
   if (L >= 5 && UPGRADABLE[b.type]) futurize(grp, P, L);
+  // deutliche Ausgabe-Pfeile auf dem Boden (nicht für Verkauf/Mülleimer/Bänder)
+  if (b.type === 'miner' || b.type === 'furnace' || b.type === 'assembler') addOutArrows(grp, P, [0]);
+  if (b.type === 'splitter') addOutArrows(grp, P, [0, 1, 3]);
+  if (b.type === 'furnace' || b.type === 'assembler') addInArrows(grp, P, [1, 2, 3]);
   const [cx, cz] = tileCenter(b.x, b.y);
   grp.position.set(cx, 0, cz);
   grp.rotation.y = -b.dir * Math.PI / 2;
@@ -536,6 +540,8 @@ function syncBuildings(dt) {
     }
     const P = o.userData.parts;
     animateExtras(b, P, dt);
+    animateOutArrows(b, P);
+    animateInArrows(P);
     switch (b.type) {
       case 'miner':
         if (b.out.length < 2 && !b.empty) P.drill.rotation[P.axis || 'y'] += dt * (P.spin || 4) * lvSpeed(b);
@@ -628,7 +634,12 @@ function updateGhost() {
   v3.highlight.material.opacity = demolish ? 0.45 : 0.25;
   const area = tool === 'miner' ? 2 * MINE_RADIUS + 1 : 1; // Bohrer: Abbaubereich zeigen
   v3.highlight.scale.set(area, area, 1);
-  if (v3.ghost) { v3.ghost.position.set(cx, 0, cz); v3.ghost.rotation.y = -toolDir * Math.PI / 2; }
+  if (v3.ghost) {
+    v3.ghost.position.set(cx, 0, cz); v3.ghost.rotation.y = -toolDir * Math.PI / 2;
+    const GP = v3.ghost.userData.parts; // Vorschau: Ausgabe-Pfeile laufen mit
+    animateInArrows(GP);
+    if (GP.outArrows) GP.outArrows.forEach((c, i) => { const f = ((simTime * 1.1) % 1 + (i % 2) * 0.5) % 1; c.position.x = 0.9 + f * 0.85; c.scale.set(1.6, 1, 1.6); });
+  }
 }
 
 

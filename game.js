@@ -79,8 +79,8 @@ const RECIPES = {
 const BUILDINGS = {
   belt:      { name: 'Förderband', cost: 2,   key: '1', desc: 'Transportiert Gegenstände in Pfeilrichtung.' },
   miner:     { name: 'Bohrer',     cost: 40,  key: '2', desc: 'Baut Erz im Umkreis (3×3) ab, bis das Vorkommen leer ist. Auf jedem Erz entsteht der passende Bohrer.' },
-  furnace:   { name: 'Schmelzofen',cost: 80,  key: '3', desc: 'Schmilzt Erz (Platten, Ziegel, Goldbarren, Silizium) und 3 Eisenplatten zu Stahl. Braucht Kohle.' },
-  assembler: { name: 'Montierer',  cost: 200, key: '4', desc: 'Stellt Bauteile her. Rezept per Klick wählen.' },
+  furnace:   { name: 'Schmelzofen',cost: 80,  key: '3', desc: 'Schmilzt Erz (Platten, Ziegel, Goldbarren, Silizium) und 3 Eisenplatten zu Stahl. Braucht Kohle. 3 Eingänge (hinten, links, rechts – grüne Pfeile), 1 Ausgang vorne (gelber Pfeil).' },
+  assembler: { name: 'Montierer',  cost: 200, key: '4', desc: 'Stellt Bauteile her. Rezept per Klick wählen. 3 Eingänge (hinten, links, rechts – grüne Pfeile), 1 Ausgang vorne (gelber Pfeil).' },
   splitter:  { name: 'Verteiler',  cost: 25,  key: '5', desc: 'Verteilt abwechselnd nach vorne/links/rechts.' },
   seller:    { name: 'Verkauf',    cost: 100, key: '6', desc: 'Verkauft alle angelieferten Gegenstände.' },
   bin:       { name: 'Mülleimer',  cost: 10,  key: '7', desc: 'Vernichtet Gegenstände (ohne Erlös).' },
@@ -161,7 +161,7 @@ let buildings;    // Array aller Gebäude
 function newState(seed) {
   return {
     seed: seed ?? Math.floor(Math.random() * 1e9),
-    money: 400,
+    money: 1000,
     sold: {},
     mission: 0,
     upgrades: { belt: 0, miner: 0, craft: 0, price: 0 },
@@ -242,6 +242,39 @@ function buildDeposits(seed) {
     deposits.push({ ore, rich, tiles: list });
   }
 }
+// ---------- Startfabrik (nur bei neuen Spielen) ----------
+// Feste Erzfelder (Eisen + Kohle) und eine fertige Kette: Bohrer → Bänder → Schmelzofen → Verkauf.
+// Die Position steht in state.starter, damit die Felder beim Laden gleich wiederhergestellt werden.
+function addStarterOres() {
+  if (!state.starter) return;
+  const [ox, oy] = state.starter;
+  for (let y = oy - 1; y <= oy + 7; y++) for (let x = ox - 1; x <= ox + 9; x++) if (inMap(x, y)) tiles[y][x].ore = null;
+  for (let y = 0; y < 3; y++) for (let x = 0; x < 3; x++) { tiles[oy + y][ox + x].ore = 'iron_ore'; tiles[oy + 4 + y][ox + x].ore = 'coal'; }
+}
+function boostStarterDeposits() { // Startvorkommen sind reich
+  if (!state.starter) return;
+  const [ox, oy] = state.starter;
+  for (const d of deposits) {
+    if (!d.tiles.some(([x, y]) => x >= ox && x < ox + 3 && y >= oy && y < oy + 7)) continue;
+    d.rich = 2.2;
+    for (const [x, y] of d.tiles) { const t = tiles[y][x]; t.amt0 = t.amt = Math.round(ORE_BASE[d.ore] * d.rich * (0.7 + 0.6 * hashN(x, y, state.seed + 1))); }
+  }
+}
+function buildStarterFactory() {
+  const [ox, oy] = state.starter;
+  const P = (type, dx, dy, dir) => place(type, ox + dx, oy + dy, dir, true);
+  // Eisen: Bohrer → 3 Bänder → Schmelzofen → 2 Bänder → Verkauf
+  P('miner', 1, 1, 0);
+  for (const dx of [2, 3, 4]) P('belt', dx, 1, 0);
+  P('furnace', 5, 1, 0);
+  for (const dx of [6, 7]) P('belt', dx, 1, 0);
+  P('seller', 8, 1, 0);
+  // Kohle: Bohrer → Bänder nach rechts und dann hoch in den Ofen
+  P('miner', 1, 5, 0);
+  for (const dx of [2, 3, 4]) P('belt', dx, 5, 0);
+  for (const dy of [5, 4, 3, 2]) P('belt', 5, dy, 3);
+}
+
 function richName(r) { return r < 0.7 ? 'arm' : r < 1.2 ? 'mittel' : r < 2 ? 'reich' : 'sehr reich'; }
 function depositLeft(d) { let a = 0, a0 = 0; for (const [x, y] of d.tiles) { a += tiles[y][x].amt; a0 += tiles[y][x].amt0; } return [a, a0]; }
 
@@ -389,6 +422,7 @@ function accept(b, item, dir) {
       b.item = item; b.p = 0;
       return true;
     case 'furnace': {
+      if (dir === (b.dir + 2) % 4) return false; // vorne ist der Ausgang – Eingänge: hinten, links, rechts
       if (item === 'coal') {
         if ((b.inv.coal || 0) >= 10) return false;
       } else if (SMELT[item]) {
@@ -398,6 +432,7 @@ function accept(b, item, dir) {
       return true;
     }
     case 'assembler': {
+      if (dir === (b.dir + 2) % 4) return false; // vorne ist der Ausgang
       const r = RECIPES[b.recipe];
       if (!r || !r.in[item]) return false;
       if ((b.inv[item] || 0) >= r.in[item] * 4) return false;
@@ -845,6 +880,8 @@ function renderInfo(force = true) {
       break;
     }
   }
+  if ((b.type === 'miner' && b.out.length >= 2) || ((b.type === 'furnace' || b.type === 'assembler') && b.out.length >= 4))
+    h += '<div class="warn">⚠ Ausgabe blockiert: In Pfeilrichtung (gelber/roter Pfeil am Boden) braucht es ein Förderband oder ein Gebäude, das die Ware annimmt. Mit <b>R</b> bzw. <b>↻</b> drehen.</div>';
   if (UPGRADABLE[b.type]) {
     const L = LEVELS[b.level];
     h += `<div class="level"><b>Stufe ${b.level}/${MAX_LEVEL}: ${L.name}</b><br><small>`;
@@ -990,9 +1027,12 @@ function startGame(data) {
   if (data && !data.state.mapV) { state.legacy = true; off = LEGACY_OFF; }
   state.mapV = 2;
   state.mined = state.mined || {};
+  if (!data) state.starter = [Math.floor(MAP_W / 2) + 3, Math.floor(MAP_H / 2) - 3];
   generateMap(state.seed);
   addExtraOres(state.seed);
+  addStarterOres();
   buildDeposits(state.seed);
+  boostStarterDeposits();
   // bereits abgebaute Mengen übernehmen
   for (const [k, v] of Object.entries(state.mined)) {
     const [x, y] = k.split(',').map(Number);
@@ -1010,9 +1050,13 @@ function startGame(data) {
       if (b && level) { b.level = level; b.spent = spent || b.spent; }
     }
   }
+  if (!data) buildStarterFactory();
+  // Startbonus für ältere Spielstände (einmalig)
+  if (data && !state.starterBonus) { state.money += 600; state.starterBonus = true; setTimeout(() => toast('Startbonus: +600 € 🎁'), 800); }
+  state.starterBonus = true;
   resetPlayer();
   buildHotbar(); selectTool(null); renderMissions(); renderInfo();
-  if (!data) $('help').classList.remove('hidden');
+  if (!data) { $('help').classList.remove('hidden'); setTimeout(() => toast('Deine Startfabrik läuft schon: Eisen + Kohle → Schmelzofen → Verkauf'), 600); }
 }
 
 // =====================================================================
