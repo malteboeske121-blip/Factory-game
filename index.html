@@ -50,13 +50,13 @@
     <h2>Fabrik-Simulator – Anleitung</h2>
     <p>Baue eine automatische Fabrik: Rohstoffe abbauen, verarbeiten und verkaufen!</p>
     <ul>
-      <li><b>Bohrer</b> nur auf Erzfeldern platzieren. Sie geben Erz in Pfeilrichtung aus.</li>
+      <li><b>Bohrer</b> nur auf Erzfeldern platzieren. Je nach Erz entsteht der passende Bohrer (Erzbohrer, Kohlebagger, Steinbruch, Goldwäscher, Quarzlaser). Er baut die Felder im Umkreis (3×3) ab, bis das Vorkommen leer ist. Klicke ein Erzfeld an, um zu sehen, wie reich es ist.</li>
       <li><b>Förderbänder</b> transportieren Gegenstände. Zum Verlegen einfach über die Felder ziehen.</li>
-      <li><b>Schmelzofen</b> macht aus Erz Platten. Braucht <b>Kohle</b> als Brennstoff (1 Kohle = 4 Schmelzvorgänge).</li>
+      <li><b>Schmelzofen</b>: Eisen-/Kupfererz → Platten, Stein → Ziegel, 2 Golderz → Goldbarren, Quarz → Silizium, 3 Eisenplatten → Stahl. Braucht <b>Kohle</b> als Brennstoff (1 Kohle = 4 Schmelzvorgänge).</li>
       <li><b>Montierer</b> bauen Bauteile. Klicke einen Montierer an, um das Rezept zu wählen.</li>
       <li><b>Verteiler</b> verteilt Gegenstände abwechselnd nach vorne, links und rechts.</li>
       <li><b>Verkauf</b> nimmt alles an und bringt Geld.</li>
-      <li><b>Aufrüsten:</b> Klicke ein Gebäude an. Bohrer, Öfen, Montierer und Verkaufsstellen haben 4 Stufen: Alt → Repariert → Modern → Hightech. Jede Stufe arbeitet schneller (Verkauf: bessere Preise) und sieht neuer aus.</li>
+      <li><b>Aufrüsten:</b> Klicke ein Gebäude an. Bohrer, Öfen, Montierer und Verkaufsstellen haben 6 Stufen: Alt → Repariert → Modern → Hightech → Futuristisch → Quanten. Jede Stufe arbeitet schneller (Verkauf: bessere Preise) und sieht neuer aus.</li>
     </ul>
     <div class="touch-only">
     <h3>Steuerung</h3>
@@ -97,6 +97,7 @@
 <script src="game.js"></script>
 <script src="textures3d.js"></script>
 <script src="three3d.js"></script>
+<script src="buildings3d.js"></script>
 <script src="world3d.js"></script>
 </body>
 </html>

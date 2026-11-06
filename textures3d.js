@@ -409,6 +409,9 @@ const ORE_STYLE = {
   iron_ore:   { stone: ['#5e5a56', '#47423e'], vein: ['#8a3e22', '#a5532c', '#6b2c18'], fleck: '#c9ccd2', metal: 0.45 },
   copper_ore: { stone: ['#5c574f', '#45403a'], vein: ['#d98a2b', '#f0b040', '#b8641e'], fleck: '#ffd36a', metal: 0.5, patina: '#4e8a64' },
   coal:       { stone: ['#3a3836', '#2a2826'], vein: ['#0c0c0e', '#141416', '#1c1c20'], fleck: '#4a4e58', metal: 0.25 },
+  stone:      { stone: ['#9a948a', '#7a756c'], vein: ['#b8b2a6', '#8a847a', '#6e6a62'], fleck: '#d8d4cc', metal: 0.05 },
+  gold_ore:   { stone: ['#6a6258', '#4e4840'], vein: ['#f0c040', '#ffd860', '#c8961e'], fleck: '#fff2a0', metal: 0.6 },
+  quartz:     { stone: ['#8a8698', '#6a6678'], vein: ['#f4f0ff', '#e0d4f4', '#f8e8f0'], fleck: '#ffffff', metal: 0.1 },
 };
 
 function oreTex(ore) {
@@ -507,6 +510,9 @@ function nuggetMat(ore, renderer) {
     iron_ore:   { color: 0xa8aab0, metalness: 0.9, roughness: 0.32 },
     copper_ore: { color: 0xf0a238, metalness: 1.0, roughness: 0.22, emissive: 0x3a1e00 },
     coal:       { color: 0x18181c, metalness: 0.35, roughness: 0.12 },
+    stone:      { color: 0xb0aaa0, metalness: 0.0, roughness: 0.9 },
+    gold_ore:   { color: 0xffc830, metalness: 1.0, roughness: 0.18, emissive: 0x4a3000 },
+    quartz:     { color: 0xf0e8ff, metalness: 0.1, roughness: 0.05, emissive: 0x2a2440, transparent: true, opacity: 0.85 },
   }[ore];
   const m = new THREE.MeshStandardMaterial(Object.assign({ flatShading: true, envMap: getOreEnv(renderer), envMapIntensity: 0.9 }, opts));
   return (matCache[key] = m);

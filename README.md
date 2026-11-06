@@ -15,16 +15,36 @@ Mit dem Geld baust du deine Fabrik aus, kaufst Upgrades und erfüllst Aufträge.
 
 Produktionskette: Erz → Platten → Zahnräder / Kupferkabel → Schaltkreise → Motoren → Roboter
 
+## Erze und Vorkommen
+Sechs Erzsorten: **Eisen, Kupfer, Kohle, Stein, Gold, Quarz** (Gold und Quarz sind selten und liegen weiter außen).
+Jedes Vorkommen hat einen eigenen Vorrat (arm, mittel, reich, sehr reich) – ein Klick auf ein Erzfeld zeigt ihn an.
+Bohrer bauen die Felder im Umkreis (3 × 3) ab; die Felsbrocken schrumpfen dabei, bis das Feld leer ist.
+
+Je nach Erz entsteht automatisch der passende Bohrer:
+
+| Erz | Bohrer | Preis |
+|---|---|---|
+| Eisen, Kupfer | Erzbohrer (Bohrturm) | 40 € |
+| Kohle | Kohlebagger (Schaufelrad) | 40 € |
+| Stein | Steinbruch (Steinsäge) | 32 € |
+| Gold | Goldwäscher (Waschtrommel) | 120 € |
+| Quarz | Quarzlaser | 100 € |
+
+## Verarbeitung
+- **Schmelzofen:** Eisen-/Kupfererz → Platten, Stein → Ziegel, 2 Golderz → Goldbarren, Quarz → Silizium, 3 Eisenplatten → Stahl
+- **Montierer:** Zahnrad, Kupferkabel, Schaltkreis, Motor, Roboter, Akku, Solarmodul, Prozessor, Drohne
+
 ## Gebäude aufrüsten
-Bohrer, Schmelzöfen, Montierer und Verkaufsstellen haben **4 Stufen**. Gebäude anklicken bzw. antippen und
-**Aufrüsten** wählen (Taste **U**):
+Bohrer, Schmelzöfen, Montierer und Verkaufsstellen haben **6 Stufen** (Taste **U** oder Info-Fenster):
 
 | Stufe | Aussehen | Wirkung |
 |---|---|---|
 | 1 Alt | rostig, verwittertes Holz, rußige Ziegel | Grundtempo |
 | 2 Repariert | geflickte Bleche, Metallbänder | Tempo ×1,4 / Preise ×1,1 |
-| 3 Modern | Industrie-Lack mit Warnstreifen, Roboterarm, Betonlager | Tempo ×1,9 / Preise ×1,25 |
-| 4 Hightech | Leuchtlinien, Induktionsofen, Glasladen mit Neonschild | Tempo ×2,6 / Preise ×1,45 |
+| 3 Modern | Industrie-Lack, Warnlampen, Roboterarm | Tempo ×1,9 / Preise ×1,25 |
+| 4 Hightech | Leuchtlinien, Induktionsofen, Glasladen | Tempo ×2,6 / Preise ×1,45 |
+| 5 Futuristisch | schwebt über Landeplattform, Energiekern, Hologramm-Ringe (cyan) | Tempo ×3,6 / Preise ×1,7 |
+| 6 Quanten | violettes Leuchten, kreisende Energiekugeln, Lichtsäule | Tempo ×5 / Preise ×2 |
 
 Alle 3D-Texturen werden prozedural im Browser erzeugt (`textures3d.js`).
 

@@ -23,12 +23,43 @@ const ITEMS = {
   circuit:      { name: 'Schaltkreis',  color: '#3fae4f', shape: 'chip',   value: 25 },
   motor:        { name: 'Motor',        color: '#5a7fd0', shape: 'motor',  value: 110 },
   robot:        { name: 'Roboter',      color: '#d05ab0', shape: 'robot',  value: 600 },
+  // neue Erze
+  stone:        { name: 'Stein',        color: '#a09a90', shape: 'rock',   value: 1 },
+  gold_ore:     { name: 'Golderz',      color: '#d8b040', shape: 'rock',   value: 4 },
+  quartz:       { name: 'Quarz',        color: '#e8e0f0', shape: 'rock',   value: 3 },
+  // neue Zwischenprodukte
+  brick:        { name: 'Ziegel',       color: '#b0583a', shape: 'brick',  value: 3 },
+  steel:        { name: 'Stahl',        color: '#5f6e7c', shape: 'plate',  value: 14 },
+  gold_bar:     { name: 'Goldbarren',   color: '#f2c230', shape: 'bar',    value: 20 },
+  silicon:      { name: 'Silizium',     color: '#4a5a78', shape: 'wafer',  value: 10 },
+  // neue Endprodukte
+  battery:      { name: 'Akku',         color: '#3fbf6a', shape: 'battery', value: 60 },
+  solar:        { name: 'Solarmodul',   color: '#2a4a9a', shape: 'panel',  value: 120 },
+  processor:    { name: 'Prozessor',    color: '#2a2e36', shape: 'cpu',    value: 260 },
+  drone:        { name: 'Drohne',       color: '#e8eef4', shape: 'drone',  value: 1800 },
 };
+const ORES = ['iron_ore', 'copper_ore', 'coal', 'stone', 'gold_ore', 'quartz'];
+
+// ---------- Bohrer: je Erzsorte ein eigener Typ (wird beim Bauen automatisch gewählt) ----------
+const DRILLS = {
+  iron_ore:   { name: 'Erzbohrer',   cost: 1.0, speed: 1.0 },
+  copper_ore: { name: 'Erzbohrer',   cost: 1.0, speed: 1.0 },
+  coal:       { name: 'Kohlebagger', cost: 1.0, speed: 1.1 },
+  stone:      { name: 'Steinbruch',  cost: 0.8, speed: 1.3 },
+  gold_ore:   { name: 'Goldwäscher', cost: 3.0, speed: 0.6 },
+  quartz:     { name: 'Quarzlaser',  cost: 2.5, speed: 0.7 },
+};
+const MINE_RADIUS = 1; // Bohrer baut die Felder im Umkreis ab (3×3)
 
 // ---------- Rezepte ----------
+// need = wie viele Einheiten für ein Ergebnis nötig sind
 const SMELT = {
-  iron_ore: { out: 'iron_plate', time: 1.6 },
+  iron_ore:   { out: 'iron_plate',   time: 1.6 },
   copper_ore: { out: 'copper_plate', time: 1.6 },
+  stone:      { out: 'brick',        time: 1.4 },
+  gold_ore:   { out: 'gold_bar',     time: 2.6, need: 2 },
+  quartz:     { out: 'silicon',      time: 2.2 },
+  iron_plate: { out: 'steel',        time: 3.0, need: 3 },
 };
 const COAL_PER_FUEL = 4;
 
@@ -38,13 +69,17 @@ const RECIPES = {
   circuit: { name: 'Schaltkreis', in: { iron_plate: 1, wire: 3 }, out: 'circuit', count: 1, time: 2.0 },
   motor:   { name: 'Motor',       in: { gear: 2, circuit: 1, iron_plate: 2 }, out: 'motor', count: 1, time: 3.0 },
   robot:   { name: 'Roboter',     in: { motor: 2, circuit: 3 }, out: 'robot', count: 1, time: 5.0 },
+  battery:   { name: 'Akku',        in: { steel: 1, copper_plate: 2, wire: 2 }, out: 'battery', count: 1, time: 2.5 },
+  solar:     { name: 'Solarmodul',  in: { silicon: 3, steel: 1, wire: 4 }, out: 'solar', count: 1, time: 3.0 },
+  processor: { name: 'Prozessor',   in: { circuit: 2, silicon: 2, gold_bar: 1 }, out: 'processor', count: 1, time: 4.0 },
+  drone:     { name: 'Drohne',      in: { motor: 2, processor: 1, battery: 2, solar: 1 }, out: 'drone', count: 1, time: 6.0 },
 };
 
 // ---------- Gebäude ----------
 const BUILDINGS = {
   belt:      { name: 'Förderband', cost: 2,   key: '1', desc: 'Transportiert Gegenstände in Pfeilrichtung.' },
-  miner:     { name: 'Bohrer',     cost: 40,  key: '2', desc: 'Baut Erz ab. Nur auf Erzfeldern.' },
-  furnace:   { name: 'Schmelzofen',cost: 80,  key: '3', desc: 'Erz → Platte. Braucht Kohle.' },
+  miner:     { name: 'Bohrer',     cost: 40,  key: '2', desc: 'Baut Erz im Umkreis (3×3) ab, bis das Vorkommen leer ist. Auf jedem Erz entsteht der passende Bohrer.' },
+  furnace:   { name: 'Schmelzofen',cost: 80,  key: '3', desc: 'Schmilzt Erz (Platten, Ziegel, Goldbarren, Silizium) und 3 Eisenplatten zu Stahl. Braucht Kohle.' },
   assembler: { name: 'Montierer',  cost: 200, key: '4', desc: 'Stellt Bauteile her. Rezept per Klick wählen.' },
   splitter:  { name: 'Verteiler',  cost: 25,  key: '5', desc: 'Verteilt abwechselnd nach vorne/links/rechts.' },
   seller:    { name: 'Verkauf',    cost: 100, key: '6', desc: 'Verkauft alle angelieferten Gegenstände.' },
@@ -56,23 +91,32 @@ const BUILD_ORDER = ['belt', 'miner', 'furnace', 'assembler', 'splitter', 'selle
 // Stufe 1 = alt und rostig, Stufe 4 = Hightech. Höhere Stufen arbeiten schneller bzw. verkaufen teurer.
 const LEVELS = [
   null,
-  { name: 'Alt',       speed: 1.0, price: 1.0 },
-  { name: 'Repariert', speed: 1.4, price: 1.1 },
-  { name: 'Modern',    speed: 1.9, price: 1.25 },
-  { name: 'Hightech',  speed: 2.6, price: 1.45 },
+  { name: 'Alt',           speed: 1.0, price: 1.0 },
+  { name: 'Repariert',     speed: 1.4, price: 1.1 },
+  { name: 'Modern',        speed: 1.9, price: 1.25 },
+  { name: 'Hightech',      speed: 2.6, price: 1.45 },
+  { name: 'Futuristisch',  speed: 3.6, price: 1.7 },
+  { name: 'Quanten',       speed: 5.0, price: 2.0 },
 ];
-const MAX_LEVEL = 4;
-const LEVEL_COST = [0, 1.5, 4, 10]; // Faktor auf den Baupreis für Stufe n → n+1
+const MAX_LEVEL = 6;
+const LEVEL_COST = [0, 1.5, 4, 10, 25, 60]; // Faktor auf den Baupreis für Stufe n → n+1
 const UPGRADABLE = { miner: 1, furnace: 1, assembler: 1, seller: 1 };
 const lvSpeed = b => LEVELS[b.level || 1].speed;
-function levelUpCost(b) { return Math.round(BUILDINGS[b.type].cost * LEVEL_COST[b.level]); }
+// Baupreis: Bohrer kosten je nach Erz unterschiedlich viel
+function buildCost(type, x, y) {
+  if (type === 'miner') { const t = inMap(x, y) && tiles[y][x]; const ore = t && (t.ore || t.was); return Math.round(BUILDINGS.miner.cost * (ore ? DRILLS[ore].cost : 1)); }
+  return BUILDINGS[type].cost;
+}
+function baseCost(b) { return b.type === 'miner' && b.ore ? Math.round(BUILDINGS.miner.cost * DRILLS[b.ore].cost) : BUILDINGS[b.type].cost; }
+function levelUpCost(b) { return Math.round(baseCost(b) * LEVEL_COST[b.level]); }
+function buildingName(b) { return b.type === 'miner' && b.ore ? DRILLS[b.ore].name : BUILDINGS[b.type].name; }
 function upgradeBuilding(b) {
   if (!b || !UPGRADABLE[b.type]) return false;
   if (b.level >= MAX_LEVEL) { toast('Schon auf höchster Stufe!', true); return false; }
   const cost = levelUpCost(b);
   if (state.money < cost) { toast('Nicht genug Geld!', true); return false; }
   state.money -= cost; b.spent += cost; b.level++;
-  toast(`${BUILDINGS[b.type].name} → Stufe ${b.level} (${LEVELS[b.level].name})`);
+  toast(`${buildingName(b)} → Stufe ${b.level} (${LEVELS[b.level].name})`);
   if (selected === b) renderInfo();
   return true;
 }
@@ -96,7 +140,15 @@ const MISSIONS = [
   { item: 'circuit',      count: 30,  reward: 2000,  text: 'Verkaufe 30 Schaltkreise' },
   { item: 'motor',        count: 20,  reward: 6000,  text: 'Verkaufe 20 Motoren' },
   { item: 'robot',        count: 10,  reward: 25000, text: 'Verkaufe 10 Roboter' },
-  { item: 'robot',        count: 100, reward: 100000,text: 'Verkaufe 100 Roboter – Fabrik-Tycoon!' },
+  { item: 'brick',        count: 80,  reward: 3000,  text: 'Verkaufe 80 Ziegel' },
+  { item: 'steel',        count: 40,  reward: 6000,  text: 'Verkaufe 40 Stahl' },
+  { item: 'gold_bar',     count: 30,  reward: 9000,  text: 'Verkaufe 30 Goldbarren' },
+  { item: 'battery',      count: 30,  reward: 12000, text: 'Verkaufe 30 Akkus' },
+  { item: 'solar',        count: 25,  reward: 20000, text: 'Verkaufe 25 Solarmodule' },
+  { item: 'processor',    count: 25,  reward: 40000, text: 'Verkaufe 25 Prozessoren' },
+  { item: 'drone',        count: 10,  reward: 80000, text: 'Verkaufe 10 Drohnen' },
+  { item: 'robot',        count: 100, reward: 100000,text: 'Verkaufe 100 Roboter' },
+  { item: 'drone',        count: 100, reward: 500000,text: 'Verkaufe 100 Drohnen – Fabrik-Tycoon!' },
 ];
 
 // =====================================================================
@@ -114,6 +166,7 @@ function newState(seed) {
     mission: 0,
     upgrades: { belt: 0, miner: 0, craft: 0, price: 0 },
     recipe: 'gear',
+    mined: {},     // "x,y" -> verbleibender Vorrat (nur abgebaute Felder)
     mapV: 2,       // Kartenformat (2 = große Karte)
     legacy: false, // true = Kern stammt von einer alten 64×48-Karte
   };
@@ -128,6 +181,92 @@ function rng(seed) {
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+// fester Zufallswert aus Zahlen (verbraucht keine Zufallsfolge → alte Karten bleiben gleich)
+function hashN(a, b, c = 0) {
+  let h = (Math.imul(a | 0, 374761393) + Math.imul(b | 0, 668265263) + Math.imul(c | 0, 982451653)) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
+// Grundvorrat pro Feld (Einheiten), wird mit der Reichhaltigkeit des Vorkommens multipliziert
+const ORE_BASE = { iron_ore: 220, copper_ore: 220, coal: 200, stone: 300, gold_ore: 80, quartz: 110 };
+let deposits = []; // [{ ore, rich, tiles: [[x,y],...] }]
+let oreDirty = new Set(); // Felder, deren Vorrat sich geändert hat (für die 3D-Darstellung)
+
+// Stein, Gold und Quarz nur auf bisher leere Felder setzen (bestehende Spielstände bleiben gültig)
+function addExtraOres(seed) {
+  const r = rng(seed + 333), cx = MAP_W / 2, cy = MAP_H / 2;
+  const blob = (ore, bx, by, rad) => {
+    for (let y = by - rad - 1; y <= by + rad + 1; y++) for (let x = bx - rad - 1; x <= bx + rad + 1; x++) {
+      if (!inMap(x, y) || tiles[y][x].ore) continue;
+      if (Math.hypot(x - bx, y - by) + r() * 1.2 <= rad) tiles[y][x].ore = ore;
+    }
+  };
+  // ein Steinfeld in Startnähe
+  const a = r() * Math.PI * 2;
+  blob('stone', Math.round(cx + Math.cos(a) * 14), Math.round(cy + Math.sin(a) * 10), 3);
+  const plan = [['stone', 14, 2, 3, 0.15], ['gold_ore', 9, 2, 2, 0.45], ['quartz', 9, 2, 2, 0.4]];
+  for (const [ore, n, r0, rr, minFar] of plan) {
+    for (let i = 0, k = 0; i < 300 && k < n; i++) {
+      const x = Math.floor(r() * MAP_W), y = Math.floor(r() * MAP_H);
+      const far = Math.hypot((x - cx) / MAP_W, (y - cy) / MAP_H) * 2;
+      if (far < minFar) continue;
+      blob(ore, x, y, r0 + Math.floor(r() * (rr + 1))); k++;
+    }
+  }
+}
+
+// Zusammenhängende Felder gleicher Sorte bilden ein Vorkommen mit eigener Reichhaltigkeit
+function buildDeposits(seed) {
+  deposits = [];
+  for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) {
+    const t = tiles[y][x];
+    if (!t.ore || t.dep != null) continue;
+    const id = deposits.length, ore = t.ore, list = [], stack = [[x, y]];
+    t.dep = id;
+    while (stack.length) {
+      const [px, py] = stack.pop(); list.push([px, py]);
+      for (let k = 0; k < 4; k++) {
+        const nx = px + DX[k], ny = py + DY[k];
+        if (inMap(nx, ny) && tiles[ny][nx].ore === ore && tiles[ny][nx].dep == null) { tiles[ny][nx].dep = id; stack.push([nx, ny]); }
+      }
+    }
+    // Reichhaltigkeit 0,35 … 2,8 (wenige sehr reiche Vorkommen)
+    const rich = 0.35 + Math.pow(hashN(x, y, seed), 1.6) * 2.45;
+    for (const [px, py] of list) {
+      const tt = tiles[py][px];
+      tt.amt0 = tt.amt = Math.round(ORE_BASE[ore] * rich * (0.7 + 0.6 * hashN(px, py, seed + 1)));
+    }
+    deposits.push({ ore, rich, tiles: list });
+  }
+}
+function richName(r) { return r < 0.7 ? 'arm' : r < 1.2 ? 'mittel' : r < 2 ? 'reich' : 'sehr reich'; }
+function depositLeft(d) { let a = 0, a0 = 0; for (const [x, y] of d.tiles) { a += tiles[y][x].amt; a0 += tiles[y][x].amt0; } return [a, a0]; }
+
+// Abbau: ein Feld im Umkreis des Bohrers um 1 verringern. Liefert false, wenn nichts mehr da ist.
+function mineTile(b) {
+  const R = MINE_RADIUS, n = (2 * R + 1) ** 2;
+  for (let i = 0; i < n; i++) {
+    const k = (b.rr + i) % n, x = b.x + (k % (2 * R + 1)) - R, y = b.y + Math.floor(k / (2 * R + 1)) - R;
+    if (!inMap(x, y)) continue;
+    const t = tiles[y][x];
+    if (t.ore !== b.ore || !(t.amt > 0)) continue;
+    t.amt--;
+    state.mined[x + ',' + y] = t.amt;
+    if (t.amt <= 0) { t.was = t.ore; t.ore = null; }
+    oreDirty.add(x + ',' + y);
+    b.rr = (k + 1) % n;
+    return true;
+  }
+  return false;
+}
+function minerLeft(b) {
+  let a = 0; const R = MINE_RADIUS;
+  for (let y = b.y - R; y <= b.y + R; y++) for (let x = b.x - R; x <= b.x + R; x++)
+    if (inMap(x, y) && tiles[y][x].ore === b.ore) a += tiles[y][x].amt;
+  return a;
 }
 
 function generateMap(seed) {
@@ -187,22 +326,23 @@ function bAt(x, y) { return inMap(x, y) ? tiles[y][x].b : null; }
 
 function makeBuilding(type, x, y, dir) {
   const b = { type, x, y, dir, inv: {}, out: [], prog: 0, item: null, p: 0, moved: false, rr: 0, fuel: 0, job: null, anim: 0,
-    level: 1, spent: BUILDINGS[type].cost };
+    level: 1, spent: buildCost(type, x, y) };
+  if (type === 'miner') { const t = tiles[y][x]; b.ore = t.ore || t.was; }
   if (type === 'assembler') b.recipe = state.recipe;
   return b;
 }
 
-function canPlace(type, x, y) {
+function canPlace(type, x, y, loading = false) {
   if (!inMap(x, y)) return false;
   const t = tiles[y][x];
   if (t.b) return false;
-  if (type === 'miner' && !t.ore) return false;
+  if (type === 'miner' && !t.ore && !(loading && t.was)) return false;
   return true;
 }
 
 function place(type, x, y, dir, free = false) {
-  if (!canPlace(type, x, y)) return null;
-  const cost = BUILDINGS[type].cost;
+  if (!canPlace(type, x, y, free)) return null;
+  const cost = buildCost(type, x, y);
   if (!free && typeof blockedByPlayer === 'function' && blockedByPlayer(type, x, y)) { toast('Hier stehst du gerade!', true); return null; }
   if (!free) {
     if (state.money < cost) { toast('Nicht genug Geld!', true); return null; }
@@ -318,9 +458,13 @@ function update(dt) {
         break;
       }
       case 'miner': {
-        if (b.out.length < 2) {
-          b.prog += dt * lvSpeed(b) / minerTime();
-          if (b.prog >= 1) { b.prog = 0; b.out.push(tiles[b.y][b.x].ore); }
+        if (b.out.length < 2 && !b.empty) {
+          b.prog += dt * lvSpeed(b) * DRILLS[b.ore].speed / minerTime();
+          if (b.prog >= 1) {
+            b.prog = 0;
+            if (mineTile(b)) b.out.push(b.ore);
+            else { b.empty = true; if (selected === b) renderInfo(); }
+          }
           b.anim = (b.anim + dt * 4) % 1;
         }
         pushOutput(b);
@@ -328,10 +472,10 @@ function update(dt) {
       }
       case 'furnace': {
         if (!b.job && b.out.length < 4) {
-          const ore = ['iron_ore', 'copper_ore'].find(o => b.inv[o] > 0);
+          const ore = Object.keys(SMELT).find(o => (b.inv[o] || 0) >= (SMELT[o].need || 1));
           if (ore) {
             if (b.fuel <= 0 && b.inv.coal > 0) { b.inv.coal--; b.fuel += COAL_PER_FUEL; }
-            if (b.fuel > 0) { b.fuel--; b.inv[ore]--; b.job = SMELT[ore]; b.prog = 0; }
+            if (b.fuel > 0) { b.fuel--; b.inv[ore] -= SMELT[ore].need || 1; b.job = SMELT[ore]; b.prog = 0; }
           }
         }
         if (b.job) {
@@ -431,6 +575,44 @@ function drawItem(c, item, x, y, s) {
       c.fillRect(-s * .4, -s * .3, s * .8, s * .75); c.strokeRect(-s * .4, -s * .3, s * .8, s * .75);
       c.fillStyle = '#fff'; c.fillRect(-s * .25, -s * .15, s * .15, s * .15); c.fillRect(s * .1, -s * .15, s * .15, s * .15);
       c.fillStyle = it.color; c.fillRect(-s * .05, -s * .5, s * .1, s * .2);
+      break;
+    case 'brick':
+      c.fillRect(-s * .5, -s * .28, s, s * .56); c.strokeRect(-s * .5, -s * .28, s, s * .56);
+      c.strokeStyle = 'rgba(0,0,0,.35)'; c.beginPath(); c.moveTo(-s * .5, 0); c.lineTo(s * .5, 0); c.moveTo(0, -s * .28); c.lineTo(0, 0); c.stroke();
+      break;
+    case 'bar':
+      c.beginPath(); c.moveTo(-s * .5, s * .3); c.lineTo(s * .5, s * .3); c.lineTo(s * .32, -s * .25); c.lineTo(-s * .32, -s * .25); c.closePath(); c.fill(); c.stroke();
+      c.fillStyle = 'rgba(255,255,255,.45)'; c.fillRect(-s * .25, -s * .18, s * .5, s * .08);
+      break;
+    case 'wafer':
+      c.beginPath(); c.arc(0, 0, s * .46, 0, 7); c.fill(); c.stroke();
+      c.strokeStyle = 'rgba(160,190,255,.6)'; c.lineWidth = 1;
+      for (let i = -2; i <= 2; i++) { c.beginPath(); c.moveTo(i * s * .15, -s * .4); c.lineTo(i * s * .15, s * .4); c.moveTo(-s * .4, i * s * .15); c.lineTo(s * .4, i * s * .15); c.stroke(); }
+      break;
+    case 'battery':
+      c.fillRect(-s * .28, -s * .4, s * .56, s * .85); c.strokeRect(-s * .28, -s * .4, s * .56, s * .85);
+      c.fillStyle = '#ddd'; c.fillRect(-s * .1, -s * .5, s * .2, s * .1);
+      c.fillStyle = '#fff'; c.fillRect(-s * .05, -s * .15, s * .1, s * .35); c.fillRect(-s * .15, -s * .03, s * .3, s * .1);
+      break;
+    case 'panel':
+      c.fillRect(-s * .5, -s * .35, s, s * .7); c.strokeRect(-s * .5, -s * .35, s, s * .7);
+      c.strokeStyle = 'rgba(200,220,255,.55)'; c.lineWidth = 1;
+      for (let i = 1; i < 4; i++) { c.beginPath(); c.moveTo(-s * .5 + i * s / 4, -s * .35); c.lineTo(-s * .5 + i * s / 4, s * .35); c.stroke(); }
+      c.beginPath(); c.moveTo(-s * .5, 0); c.lineTo(s * .5, 0); c.stroke();
+      break;
+    case 'cpu':
+      c.fillStyle = '#c9a23a';
+      for (let i = -2; i <= 2; i++) { c.fillRect(i * s * .15 - s * .03, -s * .5, s * .06, s); c.fillRect(-s * .5, i * s * .15 - s * .03, s, s * .06); }
+      c.fillStyle = it.color; c.fillRect(-s * .38, -s * .38, s * .76, s * .76); c.strokeRect(-s * .38, -s * .38, s * .76, s * .76);
+      c.fillStyle = '#9aa4b0'; c.fillRect(-s * .2, -s * .2, s * .4, s * .4);
+      break;
+    case 'drone':
+      c.strokeStyle = '#555'; c.lineWidth = 2;
+      c.beginPath(); c.moveTo(-s * .35, -s * .35); c.lineTo(s * .35, s * .35); c.moveTo(s * .35, -s * .35); c.lineTo(-s * .35, s * .35); c.stroke();
+      c.fillStyle = '#333';
+      for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) { c.beginPath(); c.arc(dx * s * .35, dy * s * .35, s * .15, 0, 7); c.fill(); }
+      c.fillStyle = it.color; c.beginPath(); c.arc(0, 0, s * .2, 0, 7); c.fill(); c.strokeStyle = 'rgba(0,0,0,.6)'; c.lineWidth = 1.5; c.stroke();
+      c.fillStyle = '#5ee0ff'; c.beginPath(); c.arc(0, 0, s * .07, 0, 7); c.fill();
       break;
   }
   c.restore();
@@ -593,7 +775,7 @@ function updateHotbar() {
 function selectTool(type) {
   tool = type;
   demolish = false;
-  if (type) { selected = null; renderInfo(); }
+  if (type) { selected = null; selectedTile = null; renderInfo(); }
   updateHotbar();
   $('game3d').style.cursor = type || demolish ? 'crosshair' : 'default';
 }
@@ -621,6 +803,7 @@ function invText(inv) {
 }
 
 let infoKey = '';
+let selectedTile = null; // angeklicktes Feld ohne Gebäude (für Erz-Infos)
 function renderInfo(force = true) {
   const el = $('info');
   if (!selected) {
@@ -628,16 +811,31 @@ function renderInfo(force = true) {
       const d = BUILDINGS[tool];
       el.innerHTML = `<b>${d.name}</b> (${d.cost} €)<br>${d.desc}<br><small>${touchUI ? '↻ Drehen unten in der Leiste' : 'R = drehen'}</small>`;
       if (tool === 'assembler') el.innerHTML += recipeButtons(state.recipe);
+      if (tool === 'miner') el.innerHTML += '<br><small>Preis je Erz: ' + ORES.map(o => `${ITEMS[o].name} ${Math.round(BUILDINGS.miner.cost * DRILLS[o].cost)} €`).join(' · ') + '</small>';
     } else if (demolish) el.innerHTML = '<b>Abreißen</b><br>Gebäude antippen oder darüber ziehen. Du bekommst 75 % der Kosten zurück.';
+    else if (selectedTile && tiles[selectedTile.y][selectedTile.x].dep != null) {
+      // angeklicktes Erzvorkommen
+      const t = tiles[selectedTile.y][selectedTile.x], d = deposits[t.dep], [left, total] = depositLeft(d);
+      const pct = total ? left / total : 0;
+      el.innerHTML = `<b>${ITEMS[d.ore].name}-Vorkommen</b><br>Reichhaltigkeit: <b>${richName(d.rich)}</b><br>` +
+        `Felder: ${d.tiles.length}<br>Vorrat: ${fmt(left)} / ${fmt(total)}` +
+        `<div class="bar"><div style="width:${pct * 100}%"></div></div>` +
+        `<small>Dieses Feld: ${fmt(t.amt)} · passender Bohrer: ${DRILLS[d.ore].name} (${Math.round(BUILDINGS.miner.cost * DRILLS[d.ore].cost)} €)</small>`;
+    }
     else el.innerHTML = touchUI ? 'Wähle unten ein Gebäude und tippe auf ein Feld. Tippe ein Gebäude an für Infos. Wischen dreht die Kamera, zwei Finger zoomen.'
       : 'Wähle unten ein Gebäude (1–7) und klicke auf ein Feld. Klicke ein Gebäude an für Infos.';
     bindRecipeButtons();
     return;
   }
   const b = selected, d = BUILDINGS[b.type];
-  let h = `<b>${d.name}</b><br><small>${d.desc}</small><br>`;
+  let h = `<b>${buildingName(b)}</b><br><small>${d.desc}</small><br>`;
   switch (b.type) {
-    case 'miner': h += `Erz: ${ITEMS[tiles[b.y][b.x].ore].name}<br>Tempo: ${(60 * lvSpeed(b) / minerTime()).toFixed(0)} / min`; break;
+    case 'miner': {
+      const left = minerLeft(b);
+      h += `Erz: ${ITEMS[b.ore].name}<br>Tempo: ${(60 * lvSpeed(b) * DRILLS[b.ore].speed / minerTime()).toFixed(0)} / min<br>`;
+      h += b.empty || !left ? '<b style="color:#e05050">Vorkommen erschöpft – Bohrer abreißen und woanders bauen</b>' : `Vorrat im Umkreis: ${fmt(left)}`;
+      break;
+    }
     case 'furnace': h += `Brennstoff: ${b.fuel} Vorgänge<br>Lager: ${invText(b.inv)}<br>Ausgabe: ${b.out.length}`; break;
     case 'assembler': h += `Lager: ${invText(b.inv)}<br>Ausgabe: ${b.out.length}` + recipeButtons(b.recipe); break;
     case 'belt': case 'splitter': h += `Inhalt: ${b.item ? ITEMS[b.item].name : '–'}`; break;
@@ -791,7 +989,18 @@ function startGame(data) {
   let off = [0, 0];
   if (data && !data.state.mapV) { state.legacy = true; off = LEGACY_OFF; }
   state.mapV = 2;
+  state.mined = state.mined || {};
   generateMap(state.seed);
+  addExtraOres(state.seed);
+  buildDeposits(state.seed);
+  // bereits abgebaute Mengen übernehmen
+  for (const [k, v] of Object.entries(state.mined)) {
+    const [x, y] = k.split(',').map(Number);
+    if (!inMap(x, y) || !tiles[y][x].ore) continue;
+    const t = tiles[y][x]; t.amt = v;
+    if (v <= 0) { t.was = t.ore; t.ore = null; }
+  }
+  oreDirty = new Set();
   buildings = [];
   incomeLog = []; simTime = 0; selected = null;
   if (data) {
@@ -825,7 +1034,7 @@ function frame(now) {
   if (uiTimer > 0.2) {
     uiTimer = 0;
     updateTopbar(); updateHotbar(); renderMissions();
-    if (selected) renderInfo(false);
+    if (selected || selectedTile) renderInfo(false);
   }
   if (saveTimer > 5) { saveTimer = 0; save(); }
   requestAnimationFrame(frame);

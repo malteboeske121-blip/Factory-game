@@ -50,6 +50,7 @@ class Batch {
       const center = min.clone().add(max).multiplyScalar(0.5);
       g.boundingSphere = new THREE.Sphere(center, center.distanceTo(max) + gr * maxS);
       const im = new THREE.InstancedMesh(g, this.mat, list.length);
+      if (this.opts.ore) { im.userData.ore = true; im.userData.orig = list.map(([m]) => m.clone()); }
       if (this.opts.lo) { // gröbere Form für weiter entfernte Bereiche
         const lo = share(this.opts.lo); lo.boundingSphere = g.boundingSphere;
         im.userData.hi = g; im.userData.lo = lo; im.userData.loDist = this.opts.loDist || 30;
@@ -139,8 +140,8 @@ function oreDirtTexture(ore) {
   const key = 'dirt-' + ore;
   if (texCache[key]) return texCache[key];
   const S = 128, [c, g] = newCanvas(S, S), rnd = texRng(ore.length * 13 + 3);
-  const earth = { iron_ore: [78, 62, 50], copper_ore: [80, 66, 50], coal: [44, 39, 34] }[ore];
-  const speck = { iron_ore: ['#7a4228', '#9a5a36'], copper_ore: ['#b07a2c', '#d8a040'], coal: ['#121214', '#26262a'] }[ore];
+  const earth = { iron_ore: [78, 62, 50], copper_ore: [80, 66, 50], coal: [44, 39, 34], stone: [110, 104, 94], gold_ore: [86, 70, 48], quartz: [92, 88, 100] }[ore];
+  const speck = { iron_ore: ['#7a4228', '#9a5a36'], copper_ore: ['#b07a2c', '#d8a040'], coal: ['#121214', '#26262a'], stone: ['#c8c2b8', '#8a847a'], gold_ore: ['#f0c040', '#ffe070'], quartz: ['#f4f0ff', '#d8c8f0'] }[ore];
   const img = g.createImageData(S, S), d = img.data;
   for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
     const dx = (x - S / 2) / (S / 2), dy = (y - S / 2) / (S / 2);
@@ -218,7 +219,7 @@ function buildMainGround() {
 
   // Erdflecken unter Erzfeldern
   v3.dirt = [];
-  for (const ore of ['iron_ore', 'copper_ore', 'coal']) {
+  for (const ore of ORES) {
     const list = [];
     for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) if (tiles[y][x].ore === ore) list.push([x, y]);
     if (!list.length) continue;

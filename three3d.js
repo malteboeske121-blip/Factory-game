@@ -91,7 +91,14 @@ function init3d() {
   ig.motor = new THREE.CylinderGeometry(0.2, 0.2, 0.36, 14);
   ig.robot = new THREE.BoxGeometry(0.36, 0.48, 0.3);
   for (const [k, it] of Object.entries(ITEMS)) v3.itemMats[k] = M(it.color, { metalness: it.shape === 'plate' ? 0.5 : 0.15 });
-  for (const ore of ['iron_ore', 'copper_ore', 'coal']) v3.itemMats[ore] = oreMat(ore, r);
+  for (const ore of ORES) v3.itemMats[ore] = oreMat(ore, r);
+  ig.brick = new THREE.BoxGeometry(0.44, 0.18, 0.22);
+  ig.bar = new THREE.CylinderGeometry(0.15, 0.22, 0.14, 4); ig.bar.rotateY(Math.PI / 4); ig.bar.scale(1.5, 1, 0.8);
+  ig.wafer = new THREE.CylinderGeometry(0.22, 0.22, 0.04, 20);
+  ig.battery = new THREE.CylinderGeometry(0.13, 0.13, 0.42, 14);
+  ig.panel = new THREE.BoxGeometry(0.5, 0.05, 0.36);
+  ig.cpu = new THREE.BoxGeometry(0.34, 0.07, 0.34);
+  ig.drone = new THREE.BoxGeometry(0.46, 0.12, 0.46);
   ig.rock = rockGeometry(5, 1, 0.3); ig.rock.scale(0.22, 0.24, 0.22);
 
   // Bodenmarkierung und Bauvorschau
@@ -141,9 +148,12 @@ function buildOreRocks() {
   if (!v3.rockGeo) {
     v3.rockGeo = rockGeometry(1, 1, 0.3);
     v3.rockLo = rockGeometry(1, 0, 0.3);
-    v3.nugGeo = { iron_ore: rockGeometry(2, 0, 0.35), copper_ore: rockGeometry(3, 0, 0.45), coal: new THREE.OctahedronGeometry(1, 0) };
+    const crystal = new THREE.CylinderGeometry(0.35, 0.5, 2.2, 6); crystal.translate(0, 0.6, 0); // Quarzkristall: sechseckige Säule
+    const tip = new THREE.ConeGeometry(0.35, 0.6, 6); tip.translate(0, 2.0, 0);
+    v3.nugGeo = { iron_ore: rockGeometry(2, 0, 0.35), copper_ore: rockGeometry(3, 0, 0.45), coal: new THREE.OctahedronGeometry(1, 0),
+      stone: rockGeometry(6, 0, 0.4), gold_ore: rockGeometry(7, 0, 0.5), quartz: mergeGeometries([[crystal, new THREE.Matrix4()], [tip, new THREE.Matrix4()]]) };
   }
-  const per = { iron_ore: [], copper_ore: [], coal: [] };
+  const per = {}; for (const o of ORES) per[o] = [];
   for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) if (tiles[y][x].ore) per[tiles[y][x].ore].push([x, y]);
   const meshes = [], tileRefs = new Map(); // "x,y" -> [[mesh, index], ...]
   const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), E = new THREE.Euler(), V = new THREE.Vector3(), Sc = new THREE.Vector3();
@@ -151,8 +161,8 @@ function buildOreRocks() {
   for (const ore of Object.keys(per)) {
     const list = per[ore];
     if (!list.length) continue;
-    const rocks = new Batch(v3.rockGeo, oreMat(ore, v3.renderer), 24, { cast: true, cull: 65, lo: v3.rockLo, loDist: 22 });
-    const nugs = new Batch(v3.nugGeo[ore], nuggetMat(ore, v3.renderer), 24, { cull: 30 });
+    const rocks = new Batch(v3.rockGeo, oreMat(ore, v3.renderer), 24, { cast: true, cull: 65, lo: v3.rockLo, loDist: 22, ore: true });
+    const nugs = new Batch(v3.nugGeo[ore], nuggetMat(ore, v3.renderer), 24, { cull: ore === 'quartz' ? 50 : 30, ore: true, cast: ore === 'quartz' });
     for (const [x, y] of list) {
       const r = rng(x * 7919 + y * 104729 + ore.length), key = x + ',' + y;
       for (let k = 0; k < rocksPer; k++) {
@@ -163,9 +173,11 @@ function buildOreRocks() {
         M.compose(V, Q, Sc); rocks.add(M, null, key);
         // Kristalle/Nuggets, schräg aus der Oberfläche ragend
         for (let j = 0; j < nugsPer; j++) {
-          const a = r() * Math.PI * 2, ns = (ore === 'coal' ? 0.07 : 0.06) + r() * 0.07;
+          const a = r() * Math.PI * 2, ns = (ore === 'coal' ? 0.07 : ore === 'quartz' ? 0.09 : 0.06) + r() * 0.07;
           V.set(px + Math.cos(a) * w * 0.55, hgt * 0.35 + hgt * (0.45 + r() * 0.4), pz + Math.sin(a) * w * 0.55);
-          E.set(r() * 3, r() * 3, r() * 3); Q.setFromEuler(E);
+          if (ore === 'quartz') { E.set((r() - 0.5) * 1.1, r() * 6, (r() - 0.5) * 1.1); V.y = hgt * 0.3; } // Kristalle wachsen nach oben
+          else E.set(r() * 3, r() * 3, r() * 3);
+          Q.setFromEuler(E);
           Sc.set(ns, ns * (ore === 'coal' ? 1.6 : 1.1), ns);
           M.compose(V, Q, Sc); nugs.add(M, null, key);
         }
@@ -174,6 +186,30 @@ function buildOreRocks() {
     meshes.push(...rocks.build(v3.scene, tileRefs), ...nugs.build(v3.scene, tileRefs));
   }
   v3.ore = { meshes, tileRefs, hidden: new Set(), sig: '' };
+  // bereits teilweise abgebaute Felder kleiner zeichnen
+  for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) { const t = tiles[y][x]; if (t.amt0 && t.amt < t.amt0) oreDirty.add(x + ',' + y); }
+}
+
+// Abbau sichtbar machen: Felsen schrumpfen mit dem Vorrat und verschwinden, wenn das Feld leer ist
+function updateDepletion() {
+  const O = v3.ore;
+  if (!O || !oreDirty.size) return;
+  const P = new THREE.Vector3(), Q = new THREE.Quaternion(), S = new THREE.Vector3(), touched = new Set();
+  for (const key of oreDirty) {
+    const refs = O.tileRefs.get(key);
+    if (!refs) continue;
+    const [x, y] = key.split(',').map(Number), t = tiles[y][x];
+    const frac = t.ore && t.amt0 ? t.amt / t.amt0 : 0, k = frac <= 0 ? 0 : 0.3 + 0.7 * frac;
+    for (const [m, i] of refs) {
+      if (!m.userData.ore) continue;
+      m.userData.orig[i].decompose(P, Q, S);
+      S.multiplyScalar(Math.max(k, 1e-4));
+      m.userData.base[i].compose(P, Q, S);
+      if (!O.hidden.has(key)) { m.setMatrixAt(i, m.userData.base[i]); touched.add(m); }
+    }
+  }
+  for (const m of touched) m.instanceMatrix.needsUpdate = true;
+  oreDirty.clear();
 }
 
 // Erzbrocken unter Gebäuden ausblenden (sonst ragen sie durch den Boden der Maschinen)
@@ -232,56 +268,6 @@ function plane(mat, w, h, x, y, z, ry = Math.PI / 2) {
 function glowMat(color) {
   const k = 'glow' + color;
   return v3.mats[k] || (v3.mats[k] = new THREE.MeshBasicMaterial({ color }));
-}
-
-function buildMiner(grp, P, L) {
-  const s = T3;
-  const base = L === 1 ? woodMat(1) : metalMat('miner', L === 2 ? '#6b7a3a' : '#d8a21c', L);
-  const frame = L === 1 ? woodMat(1) : metalMat('steel', '#767d86', L, { stripes: false, panels: 4 });
-  const drillM = metalMat('drill', '#9aa0a8', L, { stripes: false, panels: 1 });
-  grp.add(part('box', base, s * 0.9, 0.7, s * 0.9, 0, 0.35, 0));
-  // Turm
-  const H = L >= 3 ? 2.6 : 2.3;
-  if (L < 4) {
-    for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
-      const post = part('box', frame, 0.14, H, 0.14, dx * 0.55, 0.7 + H / 2, dz * 0.55);
-      if (L === 1) post.rotation.set(dz * 0.06, 0, -dx * 0.06); // schiefer Holzturm
-      grp.add(post);
-    }
-    // Querstreben
-    for (const y of L >= 3 ? [1.3, 2.0, 2.7] : [1.4, 2.4]) for (const r of [0, Math.PI / 2]) for (const sgn of [1, -1]) {
-      const br = part('box', frame, 1.2, 0.09, 0.09, 0, y, sgn * 0.55);
-      br.rotation.y = r; if (r) { br.position.set(sgn * 0.55, y, 0); }
-      grp.add(br);
-    }
-    if (L >= 3) for (const sgn of [1, -1]) { // Diagonalen
-      const d = part('box', frame, 0.07, 1.5, 0.07, 0, 1.75, sgn * 0.56); d.rotation.z = 0.75; grp.add(d);
-    }
-    grp.add(part('box', L === 1 ? woodMat(1) : frame, 1.35, 0.14, 1.35, 0, 0.7 + H, 0));
-  } else {
-    grp.add(part('cyl', frame, 0.9, H, 0.9, 0, 0.7 + H / 2, 0));
-    const ring = new THREE.Mesh(v3.geos.torus, glowMat(0x5ee0ff));
-    ring.rotation.x = Math.PI / 2; ring.position.y = 1.6; ring.scale.set(0.62, 0.62, 0.62);
-    grp.add(ring); P.ring = ring;
-  }
-  // Antrieb oben
-  grp.add(part('box', L === 1 ? metalMat('drill', '#9aa0a8', 1, { stripes: false, panels: 1 }) : base, 0.6, 0.45, 0.5, 0, 1.0 + H, 0));
-  if (L === 3) grp.add(part('box', glowMat(0xffa030), 0.16, 0.12, 0.16, 0.25, 1.3 + H, 0.18));
-  // Bohrkopf (dreht sich)
-  const drill = new THREE.Group();
-  drill.position.y = 1.15;
-  drill.add(part('cyl', drillM, 0.16, H, 0.16, 0, H / 2 - 0.2, 0));
-  for (let i = 0; i < 3; i++) {
-    const bl = part('box', drillM, 0.85, 0.06, 0.14, 0, 0, 0); bl.rotation.y = i * Math.PI / 3; bl.rotation.x = 0.25; drill.add(bl);
-  }
-  if (L === 4) { const c = part('cone', glowMat(0x5ee0ff), 0.18, 0.3, 0.18, 0, -0.2, 0); c.rotation.x = Math.PI; drill.add(c); }
-  grp.add(drill); P.drill = drill;
-  // Auswurf-Rutsche
-  const chute = part('box', drillM, 0.5, 0.12, 0.45, s * 0.42, 0.55, 0); chute.rotation.z = -0.35; grp.add(chute);
-  grp.add(arrowPart(s * 0.5, 0.9));
-  // alte Fässer / neue Elektrokästen
-  if (L === 1) { const f = part('cyl', metalMat('barrel', '#7a5030', 1, { stripes: false, panels: 1 }), 0.32, 0.5, 0.32, -0.7, 0.95, 0.68); f.rotation.z = 0.1; grp.add(f); }
-  if (L >= 3) grp.add(part('box', metalMat('cab', '#8a9096', L, { stripes: false }), 0.35, 0.55, 0.22, -0.68, 0.98, -0.72));
 }
 
 function buildFurnace(grp, P, L) {
@@ -491,7 +477,7 @@ function buildCurveBelt(grp, side) {
 
 function makeModel(b) {
   const grp = new THREE.Group();
-  const s = T3, L = b.level || 1;
+  const s = T3, L = b.level || 1, LB = Math.min(L, 4); // Stufe 5/6 bauen auf Stufe 4 auf
   grp.userData = { b, parts: {}, level: L };
   const P = grp.userData.parts;
   switch (b.type) {
@@ -506,10 +492,10 @@ function makeModel(b) {
       grp.add(part('box', rail, s, 0.3, 0.08, 0, 0.15, s * 0.45), part('box', rail, s, 0.3, 0.08, 0, 0.15, -s * 0.45));
       break;
     }
-    case 'miner': buildMiner(grp, P, L); break;
-    case 'furnace': buildFurnace(grp, P, L); break;
-    case 'assembler': buildAssembler(grp, P, L, b); break;
-    case 'seller': buildSeller(grp, P, L); break;
+    case 'miner': buildDrill(grp, P, LB, b.ore || 'iron_ore'); break;
+    case 'furnace': buildFurnace(grp, P, LB); addDetails(grp, P, LB, 'furnace'); break;
+    case 'assembler': buildAssembler(grp, P, LB, b); addDetails(grp, P, LB, 'assembler'); break;
+    case 'seller': buildSeller(grp, P, LB); break;
     case 'splitter': {
       grp.add(part('box', metalMat('split', '#4a4f58', 2, { stripes: false }), s * 0.9, 0.5, s * 0.9, 0, 0.25, 0));
       grp.add(arrowPart(s * 0.42, 0.6));
@@ -522,6 +508,7 @@ function makeModel(b) {
       break;
     }
   }
+  if (L >= 5 && UPGRADABLE[b.type]) futurize(grp, P, L);
   const [cx, cz] = tileCenter(b.x, b.y);
   grp.position.set(cx, 0, cz);
   grp.rotation.y = -b.dir * Math.PI / 2;
@@ -548,9 +535,10 @@ function syncBuildings(dt) {
       o.scale.set(k, k, k);
     }
     const P = o.userData.parts;
+    animateExtras(b, P, dt);
     switch (b.type) {
       case 'miner':
-        if (b.out.length < 2) P.drill.rotation.y += dt * 4 * lvSpeed(b);
+        if (b.out.length < 2 && !b.empty) P.drill.rotation[P.axis || 'y'] += dt * (P.spin || 4) * lvSpeed(b);
         if (P.ring) P.ring.position.y = 1.6 + Math.sin(simTime * 3) * 0.6;
         break;
       case 'furnace': {
@@ -610,11 +598,13 @@ function syncItems() {
 
 // ---------- Bauvorschau ----------
 function updateGhost() {
-  if (v3.ghostType !== tool || (tool === 'assembler' && v3.ghost && v3.ghost.userData.b.recipe !== state.recipe)) {
+  const tt = v3.target && tiles[v3.target.y][v3.target.x];
+  const gOre = tool === 'miner' ? (tt && (tt.ore || tt.was)) || 'iron_ore' : null;
+  if (v3.ghostType !== tool || v3.ghostOre !== gOre || (tool === 'assembler' && v3.ghost && v3.ghost.userData.b.recipe !== state.recipe)) {
     if (v3.ghost) v3.scene.remove(v3.ghost);
-    v3.ghost = null; v3.ghostType = tool;
+    v3.ghost = null; v3.ghostType = tool; v3.ghostOre = gOre;
     if (tool) {
-      const g = makeModel({ type: tool, x: 0, y: 0, dir: 0, recipe: state.recipe });
+      const g = makeModel({ type: tool, x: 0, y: 0, dir: 0, recipe: state.recipe, ore: gOre });
       g.traverse(o => {
         o.castShadow = false;
         if (o.isMesh) {
@@ -633,9 +623,11 @@ function updateGhost() {
   const [cx, cz] = tileCenter(t.x, t.y);
   v3.highlight.position.x = cx; v3.highlight.position.z = cz;
   let ok = true;
-  if (tool) ok = canPlace(tool, t.x, t.y) && state.money >= BUILDINGS[tool].cost && !(SOLID[tool] && playerInTile(t.x, t.y));
+  if (tool) ok = canPlace(tool, t.x, t.y) && state.money >= buildCost(tool, t.x, t.y) && !(SOLID[tool] && playerInTile(t.x, t.y));
   v3.highlight.material.color.setHex(demolish ? 0xff3030 : tool ? (ok ? 0x5cc85c : 0xe05050) : 0xffffff);
   v3.highlight.material.opacity = demolish ? 0.45 : 0.25;
+  const area = tool === 'miner' ? 2 * MINE_RADIUS + 1 : 1; // Bohrer: Abbaubereich zeigen
+  v3.highlight.scale.set(area, area, 1);
   if (v3.ghost) { v3.ghost.position.set(cx, 0, cz); v3.ghost.rotation.y = -toolDir * Math.PI / 2; }
 }
 
@@ -644,22 +636,67 @@ function updateGhost() {
 //  Spielfigur (Bauarbeiter mit Helm), schaut nach +x
 // =====================================================================
 function makeAvatar() {
+  // Bauarbeiter mit Gelenken (Hüfte, Knie, Schulter, Ellenbogen). Schaut nach +x. Größe ca. 1,8 m.
   const g = new THREE.Group();
-  const M = (c, o = {}) => new THREE.MeshStandardMaterial(Object.assign({ color: c, roughness: 0.7 }, o));
-  const pants = M(0x2a3a5a), vest = M(0xff8a1e), skin = M(0xe8b890), helmet = M(0xffd23a, { roughness: 0.35 }),
-    boots = M(0x3a2a1a), refl = M(0xeeeeee, { emissive: 0x666666 }), eye = M(0x111111);
-  const box = (m, sx, sy, sz, x, y, z) => { const b = new THREE.Mesh(v3.geos.box, m); b.scale.set(sx, sy, sz); b.position.set(x, y, z); b.castShadow = true; return b; };
-  const leg = z => { const l = new THREE.Group(); l.position.set(0, 0.8, z); l.add(box(pants, 0.2, 0.68, 0.2, 0, -0.34, 0), box(boots, 0.28, 0.14, 0.24, 0.04, -0.73, 0)); return l; };
-  const arm = z => { const a = new THREE.Group(); a.position.set(0, 1.36, z); a.add(box(vest, 0.15, 0.5, 0.15, 0, -0.24, 0), box(skin, 0.13, 0.13, 0.13, 0, -0.54, 0)); return a; };
-  const legL = leg(-0.13), legR = leg(0.13), armL = arm(-0.33), armR = arm(0.33);
-  const head = new THREE.Mesh(v3.geos.sphere, skin); head.scale.set(0.34, 0.36, 0.34); head.position.y = 1.62; head.castShadow = true;
-  const hat = new THREE.Mesh(new THREE.SphereGeometry(0.5, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), helmet);
-  hat.scale.set(0.42, 0.34, 0.42); hat.position.y = 1.68; hat.castShadow = true;
-  g.add(legL, legR, armL, armR, head, hat,
-    box(vest, 0.32, 0.58, 0.5, 0, 1.1, 0), box(refl, 0.33, 0.06, 0.51, 0, 1.0, 0), box(refl, 0.33, 0.06, 0.51, 0, 1.22, 0),
-    box(helmet, 0.22, 0.03, 0.4, 0.17, 1.68, 0),
-    box(eye, 0.02, 0.05, 0.05, 0.17, 1.64, -0.07), box(eye, 0.02, 0.05, 0.05, 0.17, 1.64, 0.07));
-  g.userData = { legL, legR, armL, armR };
+  const M = (c, o = {}) => new THREE.MeshStandardMaterial(Object.assign({ color: c, roughness: 0.75 }, o));
+  const jeans = M(0x2e4466, { roughness: 0.9 }), shirt = M(0x3a5f8a), vest = M(0xff7a12, { roughness: 0.6 }),
+    skin = M(0xe0a882, { roughness: 0.6 }), hair = M(0x4a3020, { roughness: 0.9 }), helmet = M(0xffc81e, { roughness: 0.3, metalness: 0.1 }),
+    boot = M(0x4a3422, { roughness: 0.8 }), sole = M(0x1a1a1a), refl = M(0xe8ece8, { emissive: 0x777777, roughness: 0.3 }),
+    belt = M(0x3a2a1a), metal = M(0x9aa0a8, { metalness: 0.7, roughness: 0.35 }), eyeW = M(0xf4f4f4, { roughness: 0.3 }),
+    eyeB = M(0x2a3a4a, { roughness: 0.2 }), glove = M(0x6a5a3a, { roughness: 0.9 });
+  const cyl = new THREE.CylinderGeometry(1, 1, 1, 12), sph = new THREE.SphereGeometry(1, 16, 12), box = v3.geos.box;
+  const mesh = (geo, m, sx, sy, sz, x = 0, y = 0, z = 0) => { const o = new THREE.Mesh(geo, m); o.scale.set(sx, sy, sz); o.position.set(x, y, z); o.castShadow = true; return o; };
+  const joint = (x, y, z) => { const j = new THREE.Group(); j.position.set(x, y, z); return j; };
+
+  // Beine: Hüfte → Oberschenkel → Knie → Unterschenkel → Stiefel
+  const leg = z => {
+    const hip = joint(0, 0.94, z);
+    hip.add(mesh(cyl, jeans, 0.085, 0.46, 0.085, 0, -0.23, 0));
+    const knee = joint(0, -0.46, 0);
+    knee.add(mesh(sph, jeans, 0.08, 0.08, 0.08));
+    knee.add(mesh(cyl, jeans, 0.07, 0.42, 0.07, 0, -0.21, 0));
+    knee.add(mesh(box, boot, 0.26, 0.11, 0.13, 0.05, -0.43, 0), mesh(box, sole, 0.27, 0.03, 0.135, 0.05, -0.485, 0));
+    hip.add(knee); hip.userData.knee = knee;
+    return hip;
+  };
+  // Arme: Schulter → Oberarm → Ellenbogen → Unterarm → Hand (Handschuh)
+  const arm = z => {
+    const sh = joint(0, 1.47, z);
+    sh.add(mesh(sph, shirt, 0.075, 0.075, 0.075));
+    sh.add(mesh(cyl, shirt, 0.06, 0.3, 0.06, 0, -0.15, 0));
+    const el = joint(0, -0.3, 0);
+    el.add(mesh(cyl, skin, 0.05, 0.27, 0.05, 0, -0.135, 0));
+    el.add(mesh(sph, glove, 0.065, 0.075, 0.05, 0.01, -0.3, 0));
+    sh.add(el); sh.userData.el = el;
+    return sh;
+  };
+  const legL = leg(-0.1), legR = leg(0.1), armL = arm(-0.24), armR = arm(0.24);
+  // Rumpf: Hemd, Warnweste mit Reflexstreifen, Gürtel mit Werkzeug
+  const torso = new THREE.Group();
+  torso.add(mesh(cyl, shirt, 0.15, 0.56, 0.2, 0, 1.22, 0));
+  torso.add(mesh(cyl, vest, 0.16, 0.42, 0.215, 0, 1.27, 0));
+  for (const y of [1.14, 1.32]) torso.add(mesh(cyl, refl, 0.163, 0.04, 0.218, 0, y, 0));
+  torso.add(mesh(cyl, belt, 0.155, 0.06, 0.205, 0, 0.97, 0));
+  torso.add(mesh(box, metal, 0.04, 0.04, 0.05, 0.15, 0.97, 0)); // Gürtelschnalle
+  torso.add(mesh(box, belt, 0.1, 0.12, 0.06, 0.02, 0.9, 0.2));  // Werkzeugtasche
+  const hammer = mesh(box, metal, 0.03, 0.18, 0.03, -0.05, 0.86, 0.23); hammer.rotation.z = 0.2; torso.add(hammer);
+  torso.add(mesh(cyl, jeans, 0.15, 0.12, 0.2, 0, 0.92, 0)); // Becken
+  torso.add(mesh(cyl, skin, 0.05, 0.08, 0.05, 0, 1.54, 0)); // Hals
+  // Kopf mit Gesicht, Haaren und Bauhelm
+  const head = new THREE.Group(); head.position.y = 1.68;
+  head.add(mesh(sph, skin, 0.11, 0.13, 0.105));
+  head.add(mesh(sph, hair, 0.112, 0.08, 0.108, -0.015, 0.035, 0));
+  for (const z of [-0.042, 0.042]) {
+    head.add(mesh(sph, eyeW, 0.018, 0.014, 0.018, 0.095, 0.02, z), mesh(sph, eyeB, 0.009, 0.009, 0.009, 0.108, 0.02, z));
+    head.add(mesh(box, hair, 0.01, 0.008, 0.035, 0.103, 0.045, z)); // Augenbrauen
+    head.add(mesh(sph, skin, 0.02, 0.03, 0.015, 0, 0, z * 2.5));   // Ohren
+  }
+  head.add(mesh(sph, skin, 0.022, 0.03, 0.02, 0.11, -0.01, 0)); // Nase
+  head.add(mesh(box, M(0x9a5a4a), 0.01, 0.008, 0.04, 0.1, -0.055, 0)); // Mund
+  const hat = mesh(new THREE.SphereGeometry(1, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2), helmet, 0.125, 0.1, 0.12, 0, 0.05, 0);
+  head.add(hat, mesh(cyl, helmet, 0.145, 0.012, 0.135, 0.02, 0.05, 0), mesh(box, helmet, 0.03, 0.02, 0.012, 0, 0.14, 0)); // Rand + Grat
+  g.add(legL, legR, armL, armR, torso, head);
+  g.userData = { legL, legR, armL, armR, head, torso };
   return g;
 }
 
@@ -701,6 +738,8 @@ function startBuild(t) {
 }
 function selectAt(t) {
   selected = t ? bAt(t.x, t.y) : null;
+  selectedTile = !selected && t && tiles[t.y][t.x].dep != null ? t : null;
+  if (selectedTile && touchUI) document.getElementById('side').classList.add('open');
   renderInfo();
   if (selected && touchUI) document.getElementById('side').classList.add('open');
 }
@@ -879,8 +918,9 @@ function movePlayer(dt) {
     const want = Math.atan2(-vz, vx);
     let d = want - p.face; d = Math.atan2(Math.sin(d), Math.cos(d));
     p.face += d * Math.min(1, dt * 12);
-    p.walk += dt * Math.hypot(vx, vz) * 1.6;
-  } else p.walk *= 0.85;
+    p.walk += dt * Math.hypot(vx, vz) * 1.5;
+    p.moving = true;
+  } else p.moving = false;
   // Förderbänder tragen die Figur mit
   if (p.onGround) {
     const b = bAt(Math.floor(p.x / T3), Math.floor(p.z / T3));
@@ -916,9 +956,18 @@ function render3d(dt) {
   const A = v3.avatar;
   A.position.set(p.x, p.y, p.z);
   A.rotation.y = p.face;
-  const sw = Math.sin(p.walk) * Math.min(1, Math.abs(Math.sin(p.walk)) + 0.3) * 0.7;
-  A.userData.legL.rotation.z = sw; A.userData.legR.rotation.z = -sw;
-  A.userData.armL.rotation.z = -sw * 0.8; A.userData.armR.rotation.z = sw * 0.8;
+  // Gehen: Beine schwingen, Knie beugen sich beim Vorschwingen, Arme gegengleich, leichtes Wippen
+  const U = A.userData, ph = p.walk, amp = Math.min(1, Math.abs(p.walkAmp = (p.walkAmp || 0) * 0.9 + (p.moving ? 0.1 : 0)));
+  const sw = Math.sin(ph) * 0.55 * amp;
+  U.legL.rotation.z = sw; U.legR.rotation.z = -sw;
+  U.legL.userData.knee.rotation.z = -Math.max(0, -Math.cos(ph)) * 0.9 * amp;
+  U.legR.userData.knee.rotation.z = -Math.max(0, Math.cos(ph)) * 0.9 * amp;
+  U.armL.rotation.z = -sw * 0.8; U.armR.rotation.z = sw * 0.8;
+  U.armL.userData.el.rotation.z = 0.25 + amp * 0.3; U.armR.userData.el.rotation.z = 0.25 + amp * 0.3;
+  const bob = Math.abs(Math.cos(ph)) * 0.04 * amp;
+  U.torso.position.y = bob; U.head.position.y = 1.68 + bob;
+  U.armL.position.y = U.armR.position.y = 1.47 + bob;
+  U.head.rotation.y = Math.sin(simTime * 0.7) * 0.15 * (1 - amp); // schaut sich im Stehen um
   // Kamera von schräg oben hinter der Figur
   const tx = p.x, ty = p.y + 1.2, tz = p.z;
   cam3.position.set(
@@ -934,11 +983,13 @@ function render3d(dt) {
   if (!paused) v3.beltTex.offset.x -= beltSpeed() * dt / 2;
   syncBuildings(dt);
   updateOreVisibility();
+  updateDepletion();
   syncItems();
   v3.target = v3.pointer.inside ? tileAtScreen(v3.pointer.x, v3.pointer.y) : null;
   updateGhost();
   // ausgewähltes Gebäude markieren
-  v3.selMark.visible = !!selected;
-  if (selected) { const [sx, sz] = tileCenter(selected.x, selected.y); v3.selMark.position.x = sx; v3.selMark.position.z = sz; }
+  const sel = selected || selectedTile;
+  v3.selMark.visible = !!sel;
+  if (sel) { const [sx, sz] = tileCenter(sel.x, sel.y); v3.selMark.position.x = sx; v3.selMark.position.z = sz; }
   v3.renderer.render(v3.scene, cam3);
 }
