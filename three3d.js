@@ -464,6 +464,81 @@ function buildSeller(grp, P, L) {
   coin.rotation.x = Math.PI / 2; coin.visible = false; grp.add(coin); P.coin = coin;
 }
 
+// ---------- Förderband-Kurven ----------
+// Liefert 0 (gerade), -1 (Kurve, Zulauf von links) oder +1 (Zulauf von rechts).
+// Links/rechts gilt in Laufrichtung des Bandes; ein Zulauf von hinten macht das Band immer gerade.
+function feedsInto(n, toDir) { // gibt Nachbar n etwas in Richtung toDir aus?
+  if (!n) return false;
+  if (n.type === 'belt' || n.type === 'miner' || n.type === 'furnace' || n.type === 'assembler') return n.dir === toDir;
+  if (n.type === 'splitter') return n.dir === toDir || (n.dir + 1) % 4 === toDir || (n.dir + 3) % 4 === toDir;
+  return false;
+}
+function beltShape(b) {
+  const from = k => { const n = bAt(b.x + DX[k], b.y + DY[k]); return feedsInto(n, (k + 2) % 4); };
+  if (from((b.dir + 2) % 4)) return 0;
+  const left = from((b.dir + 3) % 4), right = from((b.dir + 1) % 4);
+  if (left && !right) return -1;
+  if (right && !left) return 1;
+  return 0;
+}
+
+// Ringsegment um die Innenecke (lokal, Feldmitte = 0: Ausgang bei +x, Ecke bei (1, side) in halben Feldbreiten).
+// Gruppe 0 = Oberseite (u läuft entlang des Bogens), Gruppe 1 = Innen-/Außenwand.
+function arcGeometry(rIn, rOut, y0, y1, side, uLen) {
+  const N = 14, h = T3 / 2, pos = [], uv = [], idx = [], g1 = [];
+  const pt = (r, i) => { const phi = Math.PI + side * (i / N) * Math.PI / 2; return [(1 + r * Math.cos(phi)) * h, (side + r * Math.sin(phi)) * h]; };
+  const quad = (a, b2, c, d, list) => list.push(a, b2, c, a, c, d);
+  let v = 0;
+  const top = [], walls = [];
+  // Oberseite
+  for (let i = 0; i <= N; i++) {
+    const [xi, zi] = pt(rIn, i), [xo, zo] = pt(rOut, i);
+    pos.push(xi, y1, zi, xo, y1, zo); uv.push(i / N * uLen, 0, i / N * uLen, 1);
+  }
+  for (let i = 0; i < N; i++) quad(i * 2, i * 2 + 1, i * 2 + 3, i * 2 + 2, top);
+  v = (N + 1) * 2;
+  // Wände (innen und außen)
+  for (const r of [rIn, rOut]) {
+    const base = v;
+    for (let i = 0; i <= N; i++) {
+      const [x, z] = pt(r, i);
+      pos.push(x, y0, z, x, y1, z); uv.push(i / N, 0, i / N, 1);
+    }
+    for (let i = 0; i < N; i++) quad(base + i * 2, base + i * 2 + 1, base + i * 2 + 3, base + i * 2 + 2, walls);
+    v += (N + 1) * 2;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setIndex([...top, ...walls]);
+  geo.addGroup(0, top.length, 0);
+  geo.addGroup(top.length, walls.length, 1);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+function buildCurveBelt(grp, side) {
+  const key = 'curve' + side;
+  if (!v3.geos[key]) {
+    // Bandfläche: Mittellinie hat Radius 1 (halbe Feldbreite) → Länge π/2·h; Textur so skaliert, dass sie gleich schnell läuft wie gerade
+    v3.geos[key] = {
+      top: arcGeometry(0.14, 1.86, 0, 0.22, side, Math.PI / 4),
+      inner: arcGeometry(0.06, 0.14, 0, 0.3, side, 1),
+      outer: arcGeometry(1.86, 1.94, 0, 0.3, side, 1),
+    };
+    v3.mats.beltCurve = v3.mats.beltCurve || Object.assign(v3.mats.belt.clone(), { side: THREE.DoubleSide });
+    v3.mats.beltSideCurve = v3.mats.beltSideCurve || Object.assign(v3.mats.beltSide.clone(), { side: THREE.DoubleSide });
+  }
+  const G = v3.geos[key];
+  const rail = metalMat('rail', '#6a7078', 2, { stripes: false, panels: 1 });
+  v3.mats.railCurve = v3.mats.railCurve || Object.assign(rail.clone(), { side: THREE.DoubleSide });
+  const top = new THREE.Mesh(G.top, [v3.mats.beltCurve, v3.mats.beltSideCurve]);
+  top.receiveShadow = true;
+  const inner = new THREE.Mesh(G.inner, v3.mats.railCurve), outer = new THREE.Mesh(G.outer, v3.mats.railCurve);
+  for (const m of [inner, outer]) { m.castShadow = true; m.receiveShadow = true; }
+  grp.add(top, inner, outer);
+}
+
 function makeModel(b) {
   const grp = new THREE.Group();
   const s = T3, L = b.level || 1;
@@ -471,6 +546,9 @@ function makeModel(b) {
   const P = grp.userData.parts;
   switch (b.type) {
     case 'belt': {
+      const side = b.inv ? beltShape(b) : 0; // 0 = gerade, -1/+1 = Kurve von links/rechts
+      grp.userData.shape = side;
+      if (side) { buildCurveBelt(grp, side); break; }
       const top = new THREE.Mesh(v3.geos.box, [v3.mats.beltSide, v3.mats.beltSide, v3.mats.belt, v3.mats.beltSide, v3.mats.beltSide, v3.mats.beltSide]);
       top.scale.set(s, 0.22, s * 0.86); top.position.y = 0.11; top.receiveShadow = true;
       grp.add(top);
@@ -505,6 +583,9 @@ function syncBuildings(dt) {
   for (const b of buildings) {
     seen.add(b);
     let o = v3.objs.get(b);
+    if (o && b.type === 'belt' && o.userData.shape !== beltShape(b)) { // Band wird zur Kurve oder wieder gerade
+      v3.scene.remove(o); o = makeModel(b); v3.objs.set(b, o); v3.scene.add(o);
+    }
     if (o && o.userData.level !== (b.level || 1)) { // aufgerüstet → neues Modell
       v3.scene.remove(o); o = null;
       const n = makeModel(b); n.userData.pop = 1; v3.objs.set(b, n); v3.scene.add(n); o = n;
@@ -559,9 +640,19 @@ function syncItems() {
     const it = ITEMS[b.item];
     m.geometry = v3.itemGeos[it.shape]; m.material = v3.itemMats[b.item];
     const [cx, cz] = tileCenter(b.x, b.y);
-    const k = b.type === 'belt' ? (b.p - 0.5) * T3 : 0;
-    m.position.set(cx + DX[b.dir] * k, b.type === 'belt' ? 0.38 : 0.7, cz + DY[b.dir] * k);
-    m.rotation.set(it.shape === 'wire' ? Math.PI / 2 : 0, b.dir * 0.7 + b.x, 0);
+    const side = b.type === 'belt' ? beltShape(b) : 0;
+    if (side) {
+      // auf dem Bogen: Mittellinie mit Radius einer halben Feldbreite um die Innenecke
+      const phi = Math.PI + side * b.p * Math.PI / 2, h = T3 / 2;
+      const lx = (1 + Math.cos(phi)) * h, lz = (side + Math.sin(phi)) * h;
+      const r = (b.dir + 1) % 4; // lokale +z-Richtung in der Welt
+      m.position.set(cx + DX[b.dir] * lx + DX[r] * lz, 0.38, cz + DY[b.dir] * lx + DY[r] * lz);
+      m.rotation.set(it.shape === 'wire' ? Math.PI / 2 : 0, -b.dir * Math.PI / 2 - side * b.p * Math.PI / 2 + b.x, 0);
+    } else {
+      const k = b.type === 'belt' ? (b.p - 0.5) * T3 : 0;
+      m.position.set(cx + DX[b.dir] * k, b.type === 'belt' ? 0.38 : 0.7, cz + DY[b.dir] * k);
+      m.rotation.set(it.shape === 'wire' ? Math.PI / 2 : 0, b.dir * 0.7 + b.x, 0);
+    }
     n++;
   }
   for (let i = n; i < v3.itemPool.length; i++) v3.itemPool[i].visible = false;
