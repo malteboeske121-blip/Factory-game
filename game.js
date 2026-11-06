@@ -996,6 +996,7 @@ for (const m of document.querySelectorAll('.modal')) {
   m.addEventListener('click', e => { if (e.target === m || e.target.classList.contains('close')) m.classList.add('hidden'); });
 }
 $('btnPause').onclick = () => { togglePause(); $('btnPause').blur(); };
+$('btnView').onclick = () => { setView(!v3.fp); $('btnView').blur(); };
 $('btnMenu').onclick = () => $('side').classList.toggle('open');
 $('btnCloseSide').onclick = () => $('side').classList.remove('open');
 $('btnHelp').onclick = () => $('help').classList.remove('hidden');
@@ -1088,6 +1089,7 @@ addEventListener('load', () => {
   if (touchUI) document.body.classList.add('touch');
   if (!init3d()) return;
   startGame(load());
+  setView(!touchUI); // PC: Ego-Perspektive wie bei Satisfactory, Handy: Übersicht
   addEventListener('beforeunload', save);
   last = performance.now();
   requestAnimationFrame(frame);

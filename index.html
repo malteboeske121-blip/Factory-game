@@ -11,6 +11,8 @@
 </head>
 <body>
 <canvas id="game3d"></canvas>
+<div id="crosshair" class="hidden"></div>
+<div id="lockHint" class="hidden"><b>Klicken zum Steuern</b><br><small>WASD laufen · Maus umsehen · Leertaste springen · Shift rennen<br>Linksklick bauen (gedrückt halten + umsehen = Bänder legen) · Rechtsklick abreißen<br>Mausrad / R drehen · 1–7 Gebäude · U aufrüsten · <b>V</b> Übersicht · Esc Maus freigeben</small></div>
 
 <div id="topbar">
   <div class="stat"><span class="label">Geld</span><span id="money">0 €</span></div>
@@ -18,6 +20,7 @@
   <div class="spacer"></div>
   <button id="btnMenu" class="mobile-only" title="Aufträge & Info">☰</button>
   <button id="btnPause" title="Pause">⏸</button>
+  <button id="btnView" title="Ansicht wechseln (V)">🗺 Übersicht</button>
   <button id="btnUpgrades"><span class="long">Upgrades</span><span class="short">⬆</span></button>
   <button id="btnHelp"><span class="long">Hilfe</span><span class="short">?</span></button>
   <button id="btnNew"><span class="long">Neues Spiel</span><span class="short">↺</span></button>
@@ -69,13 +72,14 @@
     </ul>
     </div>
     <div class="desk-only">
-    <h3>Steuerung</h3>
+    <h3>Steuerung (Ego-Perspektive wie bei Satisfactory)</h3>
     <ul>
-      <li><b>WASD</b>: laufen · <b>Shift</b>: rennen · <b>Leertaste</b>: springen</li>
-      <li><b>1–7</b>: Gebäude wählen, dann <b>Linksklick</b> aufs Feld (ziehen für Bänder) · <b>R</b>: drehen</li>
-      <li><b>Linksklick</b> auf ein Gebäude: Infos & Aufrüsten (<b>U</b>) · <b>Rechtsklick</b>: abreißen</li>
-      <li><b>Maus ziehen</b> (auf freier Fläche oder mit rechter Taste): Kamera drehen · <b>Mausrad</b>: zoomen · <b>Q/E</b>: Kamera drehen</li>
-      <li><b>X</b>: Abriss-Werkzeug · <b>P</b>: Pause · <b>Esc</b>: Auswahl aufheben</li>
+      <li><b>Ins Bild klicken</b>, um die Maus zu fangen · <b>Esc</b> gibt sie frei (für Menüs)</li>
+      <li><b>WASD</b>: laufen · <b>Maus</b>: umsehen · <b>Shift</b>: rennen · <b>Leertaste</b>: springen</li>
+      <li><b>1–7</b>: Gebäude wählen, <b>Linksklick</b> baut am Fadenkreuz · gedrückt halten und umsehen = Bänder legen</li>
+      <li><b>Mausrad</b> oder <b>R</b>: Bauteil drehen · <b>Rechtsklick</b>: abreißen · <b>X</b>: Abriss-Werkzeug</li>
+      <li><b>Linksklick</b> ohne Bauteil: Gebäude/Erzfeld anschauen · <b>U</b>: aufrüsten · <b>P</b>: Pause</li>
+      <li><b>V</b> oder Knopf oben: <b>Übersicht</b> von schräg oben (dort Maus ziehen = drehen, Mausrad = zoomen)</li>
     </ul>
     </div>
     <button class="close">Los geht's!</button>

@@ -12,7 +12,8 @@ const v3 = {
   ground: null, groundTiles: null, objs: new Map(), itemPool: [], itemUsed: 0,
   ghost: null, ghostType: null, ghostDir: -1, highlight: null,
   player: { x: 0, y: 0, z: 0, vy: 0, face: 0, walk: 0, onGround: true },
-  cam: { yaw: 0, pitch: 0.85, dist: 16 }, // Kamera schaut der Figur von schräg oben zu
+  cam: { yaw: 0, pitch: 0.85, dist: 16 }, // Übersicht: Kamera schaut der Figur von schräg oben zu
+  fp: false, fpPitch: -0.3, locked: false,  // Ego-Perspektive wie bei Satisfactory (Standard am PC)
   pointer: { x: 0, y: 0, inside: false },  // Maus/Finger auf dem Bild
   target: null, keys: {}, beltTex: null, mats: {}, geos: {}, itemMats: {}, itemGeos: {},
   ray: null, iconCache: {}, joy: { x: 0, y: 0 }, look: null,
@@ -509,6 +510,8 @@ function makeModel(b) {
     }
   }
   if (L >= 5 && UPGRADABLE[b.type]) futurize(grp, P, L);
+  // Gebäude höher und wuchtiger (aus Augenhöhe wirken sie so groß wie bei Satisfactory)
+  grp.userData.sy = (b.type === 'belt' || b.type === 'splitter') ? 1 : 1.4;
   // deutliche Ausgabe-Pfeile auf dem Boden (nicht für Verkauf/Mülleimer/Bänder)
   if (b.type === 'miner' || b.type === 'furnace' || b.type === 'assembler') addOutArrows(grp, P, [0]);
   if (b.type === 'splitter') addOutArrows(grp, P, [0, 1, 3]);
@@ -516,6 +519,7 @@ function makeModel(b) {
   const [cx, cz] = tileCenter(b.x, b.y);
   grp.position.set(cx, 0, cz);
   grp.rotation.y = -b.dir * Math.PI / 2;
+  grp.scale.set(1, grp.userData.sy, 1);
   return grp;
 }
 
@@ -536,7 +540,7 @@ function syncBuildings(dt) {
     if (o.userData.pop > 0) {
       o.userData.pop = Math.max(0, o.userData.pop - dt * 1.5);
       const k = 1 + Math.sin(o.userData.pop * Math.PI) * 0.18;
-      o.scale.set(k, k, k);
+      o.scale.set(k, k * (o.userData.sy || 1), k);
     }
     const P = o.userData.parts;
     animateExtras(b, P, dt);
@@ -772,8 +776,20 @@ function setupInput(cv) {
   let md = null; // gedrückte Maustaste { button, sx, sy, moved }
 
   cv.addEventListener('contextmenu', e => e.preventDefault());
+  // Ego-Perspektive: Maus wird gefangen, Umsehen über Mausbewegung
+  document.addEventListener('pointerlockchange', () => {
+    v3.locked = document.pointerLockElement === cv;
+    updateViewUI();
+    if (!v3.locked) { md = null; dragging = null; }
+  });
+  document.addEventListener('mousemove', e => {
+    if (!v3.fp || !v3.locked) return;
+    v3.cam.yaw -= e.movementX * 0.0022;
+    v3.fpPitch = Math.max(-1.45, Math.min(1.35, v3.fpPitch - e.movementY * 0.0022));
+  });
   cv.addEventListener('mousemove', e => {
     P.x = e.clientX; P.y = e.clientY; P.inside = true;
+    if (v3.fp) return;
     if (!md) return;
     const dx = e.clientX - md.lx, dy = e.clientY - md.ly;
     md.lx = e.clientX; md.ly = e.clientY;
@@ -785,12 +801,22 @@ function setupInput(cv) {
   });
   cv.addEventListener('mouseleave', () => { P.inside = false; });
   cv.addEventListener('mousedown', e => {
+    if (v3.fp) { // Ego: erster Klick fängt die Maus, danach wird am Fadenkreuz gebaut
+      if (!v3.locked) { try { const r = cv.requestPointerLock(); if (r && r.catch) r.catch(() => {}); } catch (err) { /* nicht verfügbar */ } return; }
+      const t = v3.target;
+      md = { button: e.button, build: false, fp: true };
+      if (e.button === 0 && (tool || demolish)) { md.build = true; startBuild(t); }
+      else if (e.button === 0) selectAt(t);
+      else if (e.button === 2 && t) { md.build = true; dragging = { button: 2 }; removeAt(t.x, t.y); }
+      return;
+    }
     P.x = e.clientX; P.y = e.clientY; P.inside = true;
     md = { button: e.button, sx: e.clientX, sy: e.clientY, lx: e.clientX, ly: e.clientY, moved: false, build: false };
     if (e.button === 0 && (tool || demolish)) { md.build = true; startBuild(tileAtScreen(e.clientX, e.clientY)); }
   });
   addEventListener('mouseup', e => {
     if (!md) return;
+    if (md.fp) { md = null; dragging = null; return; }
     if (!md.moved && !md.build) {
       const t = tileAtScreen(md.sx, md.sy);
       if (md.button === 0) selectAt(t);
@@ -798,7 +824,11 @@ function setupInput(cv) {
     }
     md = null; dragging = null;
   });
-  cv.addEventListener('wheel', e => { e.preventDefault(); zoomCam(e.deltaY > 0 ? 1.12 : 1 / 1.12); }, { passive: false });
+  cv.addEventListener('wheel', e => {
+    e.preventDefault();
+    if (v3.fp) { if (tool) toolDir = (toolDir + (e.deltaY > 0 ? 1 : 3)) % 4; return; } // Ego: Mausrad dreht das Bauteil
+    zoomCam(e.deltaY > 0 ? 1.12 : 1 / 1.12);
+  }, { passive: false });
 
   // ---------- Tastatur ----------
   addEventListener('keydown', e => {
@@ -815,6 +845,7 @@ function setupInput(cv) {
     else if (k === 'x') setDemolish(!demolish);
     else if (k === 'u') upgradeBuilding(hover());
     else if (k === 'p') togglePause();
+    else if (k === 'v') setView(!v3.fp);
     else if (k === ' ') { const p = v3.player; if (p.onGround) { p.vy = 6; p.onGround = false; } e.preventDefault(); }
     else if (k === 'escape') { selectTool(null); setDemolish(false); selected = null; renderInfo(); closeModals(); }
     if (e.key.startsWith('Arrow')) e.preventDefault();
@@ -836,13 +867,17 @@ function setupInput(cv) {
   cv.addEventListener('touchmove', e => {
     e.preventDefault();
     if (!tc) return;
-    if (tc.pinch) { if (e.touches.length >= 2) { const d = tdist(e.touches); zoomCam(tc.dist / d); tc.dist = d; } return; }
+    if (tc.pinch) { if (e.touches.length >= 2 && !v3.fp) { const d = tdist(e.touches); zoomCam(tc.dist / d); tc.dist = d; } return; }
     for (const t of e.changedTouches) {
       if (t.identifier !== tc.id) continue;
       P.x = t.clientX; P.y = t.clientY;
       const dx = t.clientX - tc.lx, dy = t.clientY - tc.ly;
       tc.lx = t.clientX; tc.ly = t.clientY;
       if (Math.hypot(t.clientX - tc.sx, t.clientY - tc.sy) > 10) tc.moved = true;
+      if (v3.fp) { // Ego: Wischen = umsehen
+        if (tc.moved) { v3.cam.yaw -= dx * 0.006; v3.fpPitch = Math.max(-1.45, Math.min(1.35, v3.fpPitch - dy * 0.006)); }
+        continue;
+      }
       if (tc.build) {
         const tile = tileAtScreen(t.clientX, t.clientY);
         if (!tc.started && tile && tc.tile && (tile.x !== tc.tile.x || tile.y !== tc.tile.y)) { tc.started = true; startBuild(tc.tile); }
@@ -854,6 +889,10 @@ function setupInput(cv) {
     e.preventDefault();
     if (!tc) return;
     if (tc.pinch) { if (e.touches.length === 0) tc = null; return; }
+    if (e.type === 'touchend' && v3.fp) { // Ego: Tippen = am Fadenkreuz bauen/auswählen
+      if (!tc.moved) { const t = v3.target; if (tool || demolish) startBuild(t); else selectAt(t); }
+      tc = null; dragging = null; return;
+    }
     if (e.type === 'touchend') {
       if (tc.build && !tc.started) startBuild(tc.tile);
       else if (!tc.build && !tc.moved) selectAt(tc.tile);
@@ -926,7 +965,7 @@ function movePlayer(dt) {
     vx = (fx * f + rx * s) / Math.max(1, len) * speed;
     vz = (fz * f + rz * s) / Math.max(1, len) * speed;
     // Figur dreht sich weich in Laufrichtung
-    const want = Math.atan2(-vz, vx);
+    const want = v3.fp ? c.yaw + Math.PI / 2 : Math.atan2(-vz, vx);
     let d = want - p.face; d = Math.atan2(Math.sin(d), Math.cos(d));
     p.face += d * Math.min(1, dt * 12);
     p.walk += dt * Math.hypot(vx, vz) * 1.5;
@@ -979,14 +1018,23 @@ function render3d(dt) {
   U.torso.position.y = bob; U.head.position.y = 1.68 + bob;
   U.armL.position.y = U.armR.position.y = 1.47 + bob;
   U.head.rotation.y = Math.sin(simTime * 0.7) * 0.15 * (1 - amp); // schaut sich im Stehen um
-  // Kamera von schräg oben hinter der Figur
-  const tx = p.x, ty = p.y + 1.2, tz = p.z;
-  cam3.position.set(
-    tx + Math.sin(c.yaw) * Math.cos(c.pitch) * c.dist,
-    ty + Math.sin(c.pitch) * c.dist,
-    tz + Math.cos(c.yaw) * Math.cos(c.pitch) * c.dist);
-  cam3.lookAt(tx, ty, tz);
-  v3.scene.fog.near = c.dist + 70; v3.scene.fog.far = c.dist + 380;
+  A.visible = !v3.fp;
+  if (v3.fp) {
+    // Ego-Perspektive: Augenhöhe mit leichtem Wippen beim Gehen
+    const hb = Math.sin(p.walk * 2) * 0.035 * amp;
+    cam3.position.set(p.x, p.y + 1.62 + hb, p.z);
+    cam3.rotation.set(v3.fpPitch, c.yaw, 0);
+    v3.scene.fog.near = 1e5; v3.scene.fog.far = 2e5; // kein Dunst
+  } else {
+    // Übersicht: Kamera von schräg oben hinter der Figur
+    const tx = p.x, ty = p.y + 1.2, tz = p.z;
+    cam3.position.set(
+      tx + Math.sin(c.yaw) * Math.cos(c.pitch) * c.dist,
+      ty + Math.sin(c.pitch) * c.dist,
+      tz + Math.cos(c.yaw) * Math.cos(c.pitch) * c.dist);
+    cam3.lookAt(tx, ty, tz);
+    v3.scene.fog.near = 1e5; v3.scene.fog.far = 2e5; // kein Dunst
+  }
   updateWorld(dt);
   v3.sun.position.set(p.x + 20, 40, p.z + 10);
   v3.sun.target.position.set(p.x, 0, p.z);
@@ -996,11 +1044,32 @@ function render3d(dt) {
   updateOreVisibility();
   updateDepletion();
   syncItems();
-  v3.target = v3.pointer.inside ? tileAtScreen(v3.pointer.x, v3.pointer.y) : null;
+  if (v3.fp) {
+    // Ziel am Fadenkreuz, nur in Reichweite
+    let t = (v3.locked || touchUI) ? tileAtScreen(innerWidth / 2, innerHeight / 2) : null;
+    if (t && Math.hypot((t.x + 0.5) * T3 - p.x, (t.y + 0.5) * T3 - p.z) > 26) t = null;
+    v3.target = t;
+    if (dragging && t) dragTo(t.x, t.y); // Bänder legen durch Umsehen bei gedrückter Taste
+  } else v3.target = v3.pointer.inside ? tileAtScreen(v3.pointer.x, v3.pointer.y) : null;
   updateGhost();
   // ausgewähltes Gebäude markieren
   const sel = selected || selectedTile;
   v3.selMark.visible = !!sel;
   if (sel) { const [sx, sz] = tileCenter(sel.x, sel.y); v3.selMark.position.x = sx; v3.selMark.position.z = sz; }
   v3.renderer.render(v3.scene, cam3);
+}
+
+// ---------- Ansicht wechseln: Ego-Perspektive ↔ Übersicht ----------
+function setView(fp) {
+  v3.fp = fp;
+  if (!fp && document.pointerLockElement) document.exitPointerLock();
+  if (fp) v3.player.face = v3.cam.yaw + Math.PI / 2;
+  updateViewUI();
+}
+function updateViewUI() {
+  const fp = v3.fp;
+  document.getElementById('crosshair').classList.toggle('hidden', !fp);
+  document.getElementById('lockHint').classList.toggle('hidden', !fp || v3.locked || touchUI);
+  const b = document.getElementById('btnView');
+  if (b) b.textContent = touchUI ? (fp ? '🗺' : '👁') : (fp ? '🗺 Übersicht' : '👁 Ego-Sicht');
 }

@@ -56,21 +56,21 @@ Bohrer, Schmelzöfen, Montierer und Verkaufsstellen haben **6 Stufen** (Taste **
 Alle 3D-Texturen werden prozedural im Browser erzeugt (`textures3d.js`).
 
 ## Steuerung
-Du steuerst einen Bauarbeiter, die Kamera schaut ihm von schräg oben zu. Gebaut wird direkt per Klick bzw. Tippen aufs Feld.
-
-**PC**
+Am PC spielst du in der **Ego-Perspektive** (wie bei Satisfactory): ins Bild klicken fängt die Maus, gebaut wird am Fadenkreuz.
+Mit **V** wechselst du in die **Übersicht** von schräg oben.
 
 | Taste | Aktion |
 |---|---|
-| WASD / Pfeiltasten | laufen (Shift = rennen, Leertaste = springen) |
+| WASD | laufen (Shift = rennen, Leertaste = springen) |
+| Maus | umsehen |
 | 1–7 | Gebäude wählen |
-| Linksklick (ziehen) | bauen, Förderbänder verlegen |
-| Linksklick auf Gebäude | Infos & Aufrüsten |
+| Linksklick | bauen am Fadenkreuz (gedrückt halten + umsehen = Bänder legen) |
+| Linksklick ohne Bauteil | Gebäude/Erzfeld anschauen |
 | Rechtsklick | abreißen |
-| Maus ziehen / Q, E | Kamera drehen |
-| Mausrad | zoomen |
-| R / U / X | drehen / aufrüsten / Abriss-Werkzeug |
-| P | Pause |
+| Mausrad / R | Bauteil drehen |
+| U / X / P | aufrüsten / Abriss-Werkzeug / Pause |
+| V | Ego-Sicht ↔ Übersicht |
+| Esc | Maus freigeben (für Menüs) |
 
 **Handy/Tablet:** Joystick zum Laufen, Gebäude wählen und aufs Feld tippen (für Bänder ziehen),
 Gebäude antippen für Infos, mit einem Finger wischen zum Drehen der Kamera, zwei Finger zum Zoomen.

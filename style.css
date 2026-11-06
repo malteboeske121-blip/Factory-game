@@ -94,3 +94,10 @@ body.touch .desk-only { display: none; }
 .level button { text-align: left; background: #2f5a7a; border-color: #4a8ab8; }
 .level button:hover:not(:disabled) { background: #3a6e94; }
 .warn { margin-top: 8px; padding: 8px; border-radius: 6px; background: #4a2424; border: 1px solid #a04040; color: #ffd0c8; }
+#crosshair { position: fixed; left: 50%; top: 50%; width: 22px; height: 22px; transform: translate(-50%,-50%); pointer-events: none; z-index: 4; }
+#crosshair::before, #crosshair::after { content: ""; position: absolute; background: rgba(255,255,255,.9); box-shadow: 0 0 3px #000; }
+#crosshair::before { left: 10px; top: 0; width: 2px; height: 22px; }
+#crosshair::after { top: 10px; left: 0; height: 2px; width: 22px; }
+#lockHint { position: fixed; left: 50%; top: 50%; transform: translate(-50%, 34px); background: rgba(20,24,30,.88); padding: 12px 20px;
+  border-radius: 10px; text-align: center; font-size: 17px; pointer-events: none; z-index: 4; border: 1px solid #444; max-width: calc(100% - 32px); }
+#lockHint small { font-size: 12px; color: #aab; line-height: 1.7; }
